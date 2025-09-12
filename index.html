@@ -5,28 +5,29 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>3D模型切片器</title>
 
-<!-- Three.js + loaders + controls + exporters -->
+<!-- Three.js + loaders + controls（鎖定 r0.128 UMD 版） -->
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/3MFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
 
 <style>
   body,html{margin:0;padding:0;height:100%;}
-  body{font-family:"Microsoft JhengHei", Arial; display:flex; flex-direction:column; height:100vh;}
-  .header{background:#2c3e50; color:#fff; padding:12px; text-align:center;}
+  body{font-family:"Microsoft JhengHei", Arial, system-ui, -apple-system; display:flex; flex-direction:column; height:100vh; background:#f8fafc;}
+  .header{background:#1f2937; color:#fff; padding:12px; text-align:center;}
   .main{flex:1; display:flex; overflow:hidden;}
-  .panel{width:360px; padding:12px; background:#ecf0f1; border-right:1px solid #ccc; overflow:auto; box-sizing:border-box;}
-  .controls .panel-title{font-weight:700; margin:10px 0 8px; color:#2c3e50; font-size:15px;}
+  .panel{width:380px; padding:12px; background:#ecf0f1; border-right:1px solid #cbd5e1; overflow:auto; box-sizing:border-box;}
+  .controls .panel-title{font-weight:700; margin:10px 0 8px; color:#1f2937; font-size:15px;}
   input, select, button{width:100%; padding:8px; margin-bottom:8px; box-sizing:border-box; font-size:14px;}
   input[type="range"]{ padding:0; }
   .small-btns{display:flex; gap:8px;} .small-btns button{flex:1;}
-  .note{font-size:12px; color:#666; line-height:1.5;}
+  .note{font-size:12px; color:#64748b; line-height:1.5;}
   .viewer{flex:1; display:flex; flex-direction:column; background:#fff;}
-  .tabs{display:flex; border-bottom:1px solid #ddd;}
-  .tab{padding:8px 12px; cursor:pointer; background:#eee; user-select:none;}
+  .tabs{display:flex; border-bottom:1px solid #e2e8f0;}
+  .tab{padding:8px 12px; cursor:pointer; background:#eef2f7; user-select:none;}
   .tab.active{background:#fff;}
   .canvas-wrap{position:relative; flex:1; background:#fff;}
   canvas#model-canvas{width:100%; height:100%; display:block;}
@@ -36,23 +37,44 @@
     display:none; background:transparent;
   }
 
-  .layers-list{max-height:220px; overflow:auto; border:1px solid #ddd; background:#fff; padding:0; margin:6px 0; border-radius:4px;}
-  .layer-item{display:flex; align-items:center; justify-content:space-between; padding:6px 8px; border-bottom:1px solid #eee; cursor:pointer; gap:8px;}
+  #layer-slider{
+    position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
+    min-width:40%; max-width:80%;
+    display:none; z-index:5; background:rgba(255,255,255,0.9);
+    border:1px solid #e2e8f0; border-radius:6px; padding:2px 4px;
+  }
+
+  .layers-list{max-height:220px; overflow:auto; border:1px solid #e2e8f0; background:#fff; padding:0; margin:6px 0; border-radius:6px;}
+  .layer-item{display:flex; align-items:center; justify-content:space-between; padding:6px 8px; border-bottom:1px solid #eef2f7; cursor:pointer; gap:8px;}
   .layer-item:last-child{border-bottom:none;}
-  .layer-item.active{background:#dfefff;}
+  .layer-item.active{background:#dbeafe;}
   .layer-left{display:flex; align-items:center; gap:8px; min-width:0;}
-  .layer-title{font-size:13px; color:#333; white-space:nowrap;}
+  .layer-title{font-size:13px; color:#334155; white-space:nowrap;}
   .layer-right{display:flex; align-items:center; gap:6px;}
-  .color-swatch{width:18px; height:18px; border-radius:3px; border:1px solid #aaa; cursor:pointer; flex:0 0 auto;}
-  .color-input-hidden{width:0; height:0; border:none; padding:0; opacity:0; pointer-events:none; position:absolute;}
-  .layer-meta{font-size:11px; color:#666; white-space:nowrap;}
-  .pill{display:inline-block; border-radius:12px; padding:2px 8px; font-size:12px; background:#f2f4f8; color:#334155; border:1px solid #e5e7eb; margin-bottom:8px;}
-  .help{font-size:12px; color:#5f6b7a; line-height:1.4; margin-top:-4px; margin-bottom:8px;}
+  .swatch-wrap{position:relative; width:18px; height:18px; flex:0 0 auto;}
+  .color-swatch{width:18px; height:18px; border-radius:3px; border:1px solid #94a3b8; image-rendering:pixelated; display:block;}
+  .color-input-overlay{position:absolute; left:0; top:0; width:100%; height:100%; opacity:0; pointer-events:auto; border:none; padding:0; background:transparent;}
+
+  .layer-meta{font-size:11px; color:#64748b; white-space:nowrap;}
+  .pill{display:inline-block; border-radius:12px; padding:2px 8px; font-size:12px; background:#f1f5f9; color:#334155; border:1px solid #e2e8f0; margin-bottom:8px;}
+  .help{font-size:12px; color:#5f6b7a; line-height:1.45; margin-top:-4px; margin-bottom:8px;}
   hr.sep{border:none; border-top:1px dashed #cbd5e1; margin:10px 0 6px;}
 
-  .form-row{display:flex; gap:10px; align-items:center; margin-top:6px;}
-  .form-row .chk{display:flex; align-items:center; gap:6px; padding:6px 8px; background:#fff; border:1px solid #d1d5db; border-radius:6px;}
+  .form-row{display:flex; gap:10px; align-items:center; margin-top:6px; flex-wrap:wrap;}
+  .form-row .chk{display:flex; align-items:center; gap:6px; padding:6px 8px; background:#fff; border:1px solid #d1d5db; border-radius:6px; white-space:nowrap;}
   .form-row input[type="checkbox"]{width:auto; margin:0;}
+
+  .hint{font-size:12px; color:#475569; margin-top:-6px; margin-bottom:8px;}
+  .muted{color:#64748b}
+  .row{display:flex; gap:8px;}
+  .row > *{flex:1}
+
+  /* 軸預覽徽章 */
+  .axis-badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; margin:-4px 0 6px 0;}
+  .dot{width:10px; height:10px; border-radius:50%;}
+  .dot.x{background:#ef4444;}  /* red */
+  .dot.y{background:#22c55e;}  /* green */
+  .dot.z{background:#3b82f6;}  /* blue */
 </style>
 </head>
 <body>
@@ -61,28 +83,53 @@
     <div class="panel controls">
       <div class="panel-title">1. 導入 3D 模型</div>
       <input id="file-input" type="file" accept=".stl,.obj,.3mf,.bmp" />
-      <div class="note">支援 STL、OBJ、BMP；3MF 目前以占位方塊替代。</div>
+      <div class="note">支援 <b>STL</b>、<b>OBJ</b>、<b>3MF</b>、BMP（貼圖預覽）。3MF 保留原材質/顏色。</div>
 
       <div class="panel-title">2. 模型定位</div>
       <div class="small-btns">
-        <button id="center-model">重設模型位置</button>
-        <button id="reset-transform">置中</button>
+        <button id="center-model">重設模型位置（回原始載入）</button>
+        <button id="reset-transform">置中/貼地</button>
+        <button id="rotate-tool">旋轉工具 (R)</button>
+      </div>
+      <div class="help">快捷鍵：<b>R</b> 開/關旋轉工具，<b>X/Y/Z</b> 限制軸。</div>
+
+      <!-- === 2.1 精準旋轉（世界座標） === -->
+      <div class="panel-title">2.1 精準旋轉（世界座標）</div>
+      <div class="row">
+        <select id="rotate-axis">
+          <option value="x">X</option>
+          <option value="y" selected>Y</option>
+          <option value="z">Z</option>
+        </select>
+        <input id="rotate-deg" type="number" step="0.1" value="0" placeholder="角度（度）" />
+        <button id="btn-rot-rel">執行旋轉</button>
+      </div>
+      <div class="axis-badge" id="axis-badge"><span class="dot y"></span><span>Y</span></div>
+      <div class="small-btns" style="margin-top:6px">
+        <button id="btn-rot-cw">+90°</button>
+        <button id="btn-rot-ccw">-90°</button>
       </div>
 
-      <div class="form-row">
-        <label class="chk"><input id="toggle-axes" type="checkbox" checked /><span>顯示座標軸</span></label>
-        <label class="chk"><input id="toggle-orientation" type="checkbox" checked /><span>顯示方向小視窗</span></label>
-      </div>
+      <!-- ▼ 放在模型定位最下面；僅保留滑桿 -->
+      <label>旋轉靈敏度（拖曳阻尼）</label>
+      <input id="drag-sensitivity" type="range" min="0.05" max="0.25" step="0.01" value="0.20" />
+      <div class="hint">數值越小，拖曳同樣距離旋轉越少（更穩定不暴衝）。</div>
 
-      <div class="panel-title">3. 模型外觀</div>
-      <label>模型顏色</label>
+      <div class="panel-title">3. 模型外觀與切片解析度</div>
+      <label>模型顏色（單色模式預設色）</label>
       <input id="model-color" type="color" value="#3498db" />
+
+      <div>
+        <label>切片最大邊（px）<small id="pxcap-label">1000</small></label>
+        <input id="slice-max-px" type="range" min="256" max="4096" step="128" value="1000" />
+      </div>
+      <div class="hint">調整後會即時重新切片（數值越大越細緻、耗能越高）。</div>
 
       <div class="panel-title">4. 切片設定</div>
       <label>層厚 (mm)</label>
       <input id="layer-height" type="number" min="0.01" max="10" step="0.01" value="1" />
       <button id="slice-button" disabled>切片（產生所有層）</button>
-      <div class="help">以 <b>Y 軸層厚</b> 逐層切片；每層用 <b>Y=常數</b> 平面取截面，<b>XZ 俯視</b>。顯示比例以「所有層最大內容區」為基準。</div>
+      <div class="help">以 <b>Y 軸</b> 每層 <b>層厚</b> 進行切片；每層以 <b>Y=常數</b> 平面取截面，顯示為 <b>XZ 俯視</b>。</div>
 
       <div class="panel-title">5. 切片控制</div>
       <div class="pill">當前層：<span id="current-layer">0</span> / <span id="total-layers">0</span></div>
@@ -98,46 +145,80 @@
 
       <hr class="sep" />
       <div class="panel-title">6. 視覺設定（目前層即時生效）</div>
-      <label>顏色（目前層）</label>
+
+      <div class="form-row" style="margin-top:0">
+        <label class="chk"><input id="use-part-colors" type="checkbox" /><span>使用分件顏色（多色）</span></label>
+        <span class="muted" id="color-hint"></span>
+      </div>
+
+      <label>顏色（目前層；單色模式）</label>
       <input id="ui-color" type="color" value="#e74c3c" />
 
       <div class="form-row" style="margin-top:0">
-        <label class="chk"><input id="ui-grayscale-enable" type="checkbox" /><span>啟用灰階</span></label>
+        <label class="chk"><input id="toggle-scale-bar" type="checkbox" /><span>顯示比例尺（僅預覽，不含輸出）</span></label>
       </div>
-      <label>灰階（6 階；滑桿 5 段，背景=全白）（目前層）</label>
-      <input id="ui-grayscale" type="range" min="0" max="4" step="1" value="0" disabled />
 
-      <label>像素密度（目前層）</label>
+      <!-- ▼ 新的同心分層灰階設定：四種模式 -->
+      <div class="form-row" style="margin-top:0">
+        <label class="chk"><input id="ui-gray2-enable" type="checkbox" /><span>啟用區域灰階（同心分層）</span></label>
+      </div>
+      <label>灰階分階數（含背景；2–10）<small id="ui-gray2-steps-label">5</small></label>
+      <input id="ui-gray2-steps" type="range" min="2" max="10" step="1" value="5" disabled />
+      <label>灰階模式</label>
+      <select id="ui-gray2-mode" disabled>
+        <option value="centroid-in">質心→外框（每區塊各自質心）</option>
+        <option value="centroid-out">外框→質心（每區塊各自質心）</option>
+        <option value="edge-in">外框向內（以邊界距離分層）</option>
+        <option value="edge-out">內向外框（以邊界距離分層）</option>
+      </select>
+      <div class="hint">背景固定為白；若選 5 階，內部圖形會有 4 種不同灰階，依模式由深到淺或反之。</div>
+
+      <label>像素密度（超取樣；目前層）</label>
       <input id="ui-pixel" type="range" min="0" max="5" step="1" value="0" />
+      <div class="hint">像素密度會先放大再縮回以平滑邊緣（0 不啟用；數值越大越平滑）。</div>
 
       <div class="small-btns" style="margin-top:6px">
         <button id="apply-to-all">將目前層設定套用至所有層</button>
       </div>
 
       <hr class="sep" />
-      <div class="panel-title">7. 匯出</div>
+      <div class="panel-title">7. 匯出（影像）</div>
       <select id="export-type">
-        <option value="stl">STL</option>
-        <option value="obj">OBJ</option>
-        <option value="3mf">3MF (暫存為 STL)</option>
-        <option value="bmp">BMP (當前切片)</option>
-        <option value="png">PNG (當前切片)</option>
-        <option value="jpg" selected>JPG (當前切片)</option>
+        <option value="bmp">BMP（當前切片）</option>
+        <option value="png">PNG（當前切片）</option>
+        <option value="jpg" selected>JPG（當前切片）</option>
       </select>
-      <button id="export-button">匯出目前切片（單張）</button>
-      <button id="export-all-folder" disabled>存到全部切層到資料夾</button>
-      <div class="note">會先讓你選擇資料夾，接著跳出視窗可輸入資料夾名稱（會帶預設值）。若資料夾已存在，會自動改成 <i>(1)</i>、<i>(2)</i> … 不覆蓋。</div>
+      <button id="export-button">匯出目前切片（2048×2048）</button>
+      <button id="export-all-folder" disabled>存全部切層到資料夾（2048×2048）</button>
+      <div class="note">輸出固定為 <b>2048×2048</b>；小於不放大、置中留白；大於等比例縮小到框內。</div>
+
+      <!-- === 8. 模型成長視圖（3D） === -->
+      <hr class="sep" />
+      <div class="panel-title">8. 模型成長視圖（3D）</div>
+      <div class="row">
+        <input id="growth-layer-input" type="number" min="0" value="0" />
+        <input id="growth-speed" type="number" min="1" max="60" step="1" value="5" />
+      </div>
+      <div class="hint">顯示到第 N 層；右側為速度（層/秒）。</div>
+      <input id="growth-slider" type="range" min="0" max="0" step="1" value="0" />
+      <div class="small-btns">
+        <button id="growth-animate">播放/暫停</button>
+        <button id="growth-stop">停止</button>
+      </div>
+      <button id="growth-play-to-target">從第一層長到目標層</button>
     </div>
 
     <div class="viewer">
       <div class="tabs">
         <div class="tab active" id="model-tab">3D 模型視圖</div>
         <div class="tab" id="slice-tab">切片視圖</div>
+        <div class="tab" id="growth-tab">成長視圖</div>
       </div>
 
       <div class="canvas-wrap" style="flex:1;position:relative;">
         <canvas id="model-canvas"></canvas>
         <canvas id="slice-canvas"></canvas>
+        <input id="layer-slider" type="range" min="1" max="1" value="1" step="1" />
       </div>
     </div>
   </div>
@@ -149,21 +230,71 @@ let axesHelper;
 let orientationScene, orientationCamera, orientationAxes;
 let model = null;
 
-/* 每層資料：{ mask:Canvas(裁切後黑白遮罩), x,y,w,h, frameW,frameH } */
+/* 旋轉工具 */
+let tControls = null;
+let rotateActive = false;
+
+/* 旋轉拖曳（方向固定與環一致） + 靈敏度（阻尼） */
+let invertDrag = true; // 固定為與環一致
+let isDragging = false;
+const lastQuat = new THREE.Quaternion();
+let dragSensitivity = 0.20; // 0.05 ~ 0.25
+
+/* 精準旋轉 UI */
+const rotateAxisSel  = document.getElementById('rotate-axis');
+const rotateDegInput = document.getElementById('rotate-deg');
+const axisBadge = document.getElementById('axis-badge');
+
+/* 原始姿態 */
+let originalTransform = { pos:null, quat:null, scale:null };
+
+/* baseSlices[li]：{frameW,frameH,mask,x,y,w,h,parts[]} */
 let baseSlices = [];
-let layerSettings = [];       // { color, grayLevel(0-4 for UI), grayEnabled:boolean, pixelLevel(0-5) }
+/* 每層設定（含四種灰階模式） */
+let layerSettings = []; // { color, gray2Enabled, gray2Steps, gray2Mode, pixelLevel }
 let currentSliceIndex = 0;
 let sliceThickness = 1;
+let pxPerUnitGlobal = 2;
 
+/* 切片邊界（給成長視圖用） */
+let sliceBounds = { xMin:0, xMax:0, zMin:0, zMax:0, yMin:0 };
+
+/* 成長視圖（真實堆疊） */
+let growthGroup = null;
+let growthBuilt = false;
+let growthPlaying = false;
+let growthRAF = 0;
+let growthShownLayers = 0;
+
+/* UI 元件 */
 const layerHeightInput = document.getElementById('layer-height');
 const sliceCanvas = document.getElementById('slice-canvas');
 const sliceCtx = sliceCanvas.getContext('2d');
+const layerSlider = document.getElementById('layer-slider');
 
 const uiColor = document.getElementById('ui-color');
-const uiGray  = document.getElementById('ui-grayscale');
-const uiGrayEnable = document.getElementById('ui-grayscale-enable');
 const uiPixel = document.getElementById('ui-pixel');
 const modelColorInput = document.getElementById('model-color');
+
+const pxCapRange = document.getElementById('slice-max-px');
+const pxCapLabel = document.getElementById('pxcap-label');
+const toggleScaleBar = document.getElementById('toggle-scale-bar');
+const usePartColorsChk = document.getElementById('use-part-colors');
+const colorHint = document.getElementById('color-hint');
+
+const growthSlider = document.getElementById('growth-slider');
+const growthInput  = document.getElementById('growth-layer-input');
+const growthAnimateBtn = document.getElementById('growth-animate');
+const growthStopBtn    = document.getElementById('growth-stop');
+const growthSpeedInput = document.getElementById('growth-speed');
+
+const dragSensitivityInput = document.getElementById('drag-sensitivity');
+
+/* 新灰階 UI */
+const uiGray2Enable = document.getElementById('ui-gray2-enable');
+const uiGray2Steps  = document.getElementById('ui-gray2-steps');
+const uiGray2StepsLabel = document.getElementById('ui-gray2-steps-label');
+const uiGray2Mode   = document.getElementById('ui-gray2-mode');
 
 const DEFAULT_PX_PER_UNIT = 2.0;
 const MIN_CANVAS = 128;
@@ -172,6 +303,19 @@ const MAX_CANVAS = 4096;
 let frameWGlobal = 0, frameHGlobal = 0;
 let contentBounds = { has:false, minX:0, minY:0, maxX:0, maxY:0 };
 let modelBaseName = 'slices';
+let pxCapDebounce = null;
+
+/* 比例尺狀態 */
+let scaleBarEnabled = false;
+
+/* 切片顏色預設（單色模式用） */
+let defaultSliceColor = '#e74c3c';
+
+/* 模型是否多色 */
+let modelDistinctColorCount = 1;
+
+/* 紋理平均色快取 */
+const textureAvgCache = new WeakMap();
 
 /* =============================== 初始化 Three.js =============================== */
 function initThree() {
@@ -188,17 +332,18 @@ function initThree() {
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
+  controls.rotateSpeed = 0.6;
 
+  /* 地面格線 + 燈 */
   scene.add(new THREE.GridHelper(400, 40, 0x888888, 0x444444));
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
   dirLight.position.set(1,1,1);
   scene.add(dirLight);
 
-  axesHelper = new THREE.AxesHelper(150);
-  if (document.getElementById('toggle-axes').checked) scene.add(axesHelper);
+  /* 座標軸 + 右上角方向小視窗：永遠開啟 */
+  axesHelper = new THREE.AxesHelper(150); scene.add(axesHelper);
 
-  // 方向小視窗
   orientationScene = new THREE.Scene();
   orientationScene.background = new THREE.Color(0x000000);
   orientationCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
@@ -207,7 +352,48 @@ function initThree() {
   orientationAxes = new THREE.AxesHelper(50);
   orientationScene.add(orientationAxes);
 
+  /* 旋轉工具：固定世界座標 */
+  tControls = new THREE.TransformControls(camera, renderer.domElement);
+  tControls.setMode('rotate');
+  tControls.setSpace('world');
+  tControls.visible = false;
+  tControls.addEventListener('dragging-changed', e => {
+    controls.enabled = !e.value;
+    isDragging = e.value;
+    if (e.value && model) lastQuat.copy(model.quaternion);
+  });
+  tControls.addEventListener('objectChange', ()=>{
+    if (!isDragging || !model || tControls.mode!=='rotate' || !tControls.axis) return;
+    const curr = model.quaternion.clone();
+    const delta = lastQuat.clone().invert().multiply(curr);
+    const w = THREE.MathUtils.clamp(delta.w, -1, 1);
+    let angle = 2 * Math.acos(w);
+    if (angle < 1e-6){ lastQuat.copy(model.quaternion); return; }
+    const s = Math.sqrt(1 - w*w);
+    const ax = (s >= 1e-6) ? new THREE.Vector3(delta.x/s, delta.y/s, delta.z/s) : new THREE.Vector3(1,0,0);
+
+    const axisKey = String(tControls.axis).toLowerCase();
+    const unit = axisKey==='x' ? new THREE.Vector3(1,0,0) :
+                 axisKey==='y' ? new THREE.Vector3(0,1,0) : new THREE.Vector3(0,0,1);
+
+    const sign = Math.sign(unit.dot(ax)) || 1;
+    angle = sign * angle;
+
+    model.quaternion.copy(lastQuat);
+    const apply = (invertDrag ? -1 : 1) * angle * dragSensitivity;
+    model.rotateOnWorldAxis(unit, apply);
+    lastQuat.copy(model.quaternion);
+    tControls.setSpace('world');
+  });
+  scene.add(tControls);
+
+  /* 成長視圖群組 */
+  growthGroup = new THREE.Group();
+  growthGroup.visible = false;
+  scene.add(growthGroup);
+
   window.addEventListener('resize', onWindowResize);
+  window.addEventListener('keydown', onKeyDown);
   animate();
 }
 
@@ -216,19 +402,18 @@ function animate(){
   controls.update();
   renderer.render(scene, camera);
 
-  if(document.getElementById('toggle-orientation').checked){
-    const canvas = renderer.domElement;
-    const s = Math.min(canvas.clientWidth, canvas.clientHeight) / 6;
-    renderer.setScissorTest(true);
-    renderer.setScissor(canvas.clientWidth - s - 10, 10, s, s);
-    renderer.setViewport(canvas.clientWidth - s - 10, 10, s, s);
-    orientationCamera.position.copy(camera.position).normalize().multiplyScalar(200);
-    orientationCamera.lookAt(0,0,0);
-    orientationCamera.updateProjectionMatrix();
-    renderer.render(orientationScene, orientationCamera);
-    renderer.setScissorTest(false);
-    renderer.setViewport(0,0,canvas.clientWidth, canvas.clientHeight);
-  }
+  /* 右上角方向視窗 */
+  const canvas = renderer.domElement;
+  const s = Math.min(canvas.clientWidth, canvas.clientHeight) / 6;
+  renderer.setScissorTest(true);
+  renderer.setScissor(canvas.clientWidth - s - 10, 10, s, s);
+  renderer.setViewport(canvas.clientWidth - s - 10, 10, s, s);
+  orientationCamera.position.copy(camera.position).normalize().multiplyScalar(200);
+  orientationCamera.lookAt(0,0,0);
+  orientationCamera.updateProjectionMatrix();
+  renderer.render(orientationScene, orientationCamera);
+  renderer.setScissorTest(false);
+  renderer.setViewport(0,0,canvas.clientWidth, canvas.clientHeight);
 }
 
 function onWindowResize(){
@@ -239,15 +424,10 @@ function onWindowResize(){
   layoutSliceCanvas();
 }
 
-/* =============================== 模型置中 =============================== */
-function centerModel(){
+/* =============================== 視角對焦 / 置中 / 原位還原 =============================== */
+function frameCameraToModel(){
   if(!model) return;
   const box = new THREE.Box3().setFromObject(model);
-  const center = box.getCenter(new THREE.Vector3());
-  model.position.sub(center);
-  const box2 = new THREE.Box3().setFromObject(model);
-  model.position.y -= box2.min.y;
-
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
   const camDist = maxDim * 2 + 200;
@@ -255,13 +435,30 @@ function centerModel(){
   controls.target.set(0,0,0);
   controls.update();
 }
-
-function resetTransform(){
+function groundAndCenter(){
   if(!model) return;
-  model.position.set(0,0,0);
-  model.rotation.set(0,0,0);
-  model.scale.set(1,1,1);
+  model.updateWorldMatrix(true,true);
+  const box = new THREE.Box3().setFromObject(model);
+  const center = box.getCenter(new THREE.Vector3());
+  const minY = box.min.y;
+  model.position.x -= center.x;
+  model.position.z -= center.z;
+  model.position.y -= minY;
   controls.target.set(0,0,0);
+  controls.update();
+}
+function snapshotOriginalTransform(){
+  if(!model) return;
+  originalTransform.pos   = model.position.clone();
+  originalTransform.quat  = model.quaternion.clone();
+  originalTransform.scale = model.scale.clone();
+}
+function restoreOriginalTransform(){
+  if(!model || !originalTransform.pos) return;
+  model.position.copy(originalTransform.pos);
+  model.quaternion.copy(originalTransform.quat);
+  model.scale.copy(originalTransform.scale);
+  model.updateMatrixWorld(true);
   controls.update();
 }
 
@@ -279,82 +476,325 @@ function setModelColor(hex){
     }
   });
 }
-modelColorInput.addEventListener('input', ()=> setModelColor(modelColorInput.value));
+/* 需求 #2：選擇模型顏色後，單色切片預設色同步，且既有切片（單色模式）也一起更新 */
+modelColorInput.addEventListener('input', ()=>{
+  const hex = modelColorInput.value;
+  setModelColor(hex);
+  defaultSliceColor = hex; // 之後 defLayerSetting() 與新切片也一致
+  if(!usePartColorsChk.checked && layerSettings.length){
+    for(let i=0;i<layerSettings.length;i++){
+      if(layerSettings[i]) layerSettings[i].color = hex;
+    }
+    uiColor.value = hex;
+    buildLayerList(layerSettings.length);
+    renderSlice(currentSliceIndex);
+  }
+});
 
-/* =============================== 載入模型 =============================== */
+/* =============================== 讀取輔助 =============================== */
+function setLoading(msg=true){
+  const btn = document.getElementById('slice-button');
+  if (msg){ btn.textContent = '載入中…'; btn.disabled = true; }
+  else { btn.textContent = '切片（產生所有層）'; }
+}
+function finishLoad(ok){
+  const btn = document.getElementById('slice-button');
+  btn.textContent = '切片（產生所有層）';
+  btn.disabled = !ok;
+}
+function getPxCap(){
+  const v = parseInt(pxCapRange.value,10);
+  return Math.max(256, Math.min(4096, isNaN(v) ? 1000 : v));
+}
+pxCapLabel.textContent = String(getPxCap());
+pxCapRange.addEventListener('input', ()=>{
+  pxCapLabel.textContent = String(getPxCap());
+  if(!model || baseSlices.length===0) return;
+  if(pxCapDebounce) cancelAnimationFrame(pxCapDebounce);
+  pxCapDebounce = requestAnimationFrame(()=> {
+    const savedSettings = layerSettings.map(s=> ({...s}));
+    const savedIndex = currentSliceIndex;
+    generateSlices();
+    for(let i=0;i<Math.min(savedSettings.length, layerSettings.length); i++){
+      layerSettings[i] = savedSettings[i];
+    }
+    buildLayerList(layerSettings.length);
+    renderSlice(Math.min(savedIndex, layerSettings.length-1));
+  });
+});
+
+/* =============================== 載入模型（含 3MF） =============================== */
 function loadModel(file){
   const ext = file.name.split('.').pop().toLowerCase();
 
-  if(model){ scene.remove(model); model = null; }
+  if(model){
+    if(tControls){ tControls.detach(); tControls.visible=false; rotateActive=false; }
+    scene.remove(model); model = null;
+  }
+  // 清掉成長視圖
+  growthGroup.clear(); growthBuilt=false; growthGroup.visible=false;
+
   baseSlices = []; layerSettings = [];
   currentSliceIndex = 0; updateLayerInfo(0,0);
-  document.getElementById('slice-button').disabled = true;
   document.getElementById('export-all-folder').disabled = true;
   document.getElementById('layers-list').innerHTML = '';
   sliceCanvas.style.display = 'none';
-
-  if(axesHelper) scene.remove(axesHelper);
-  if(document.getElementById('toggle-axes').checked){
-    axesHelper = new THREE.AxesHelper(150);
-    scene.add(axesHelper);
-  }
+  layerSlider.style.display = 'none';
+  setLoading(true);
 
   modelBaseName = sanitizeName(file?.name?.replace(/\.[^.]+$/,'') || 'slices');
-  const color = modelColorInput.value || '#3498db';
+  const uiColorHex = modelColorInput.value || '#3498db';
+
+  const applyCommonPost = ()=>{
+    scene.add(model);
+
+    snapshotOriginalTransform();
+    groundAndCenter();
+    frameCameraToModel();
+
+    updateDefaultSliceColorFromModel(); // 會以模型代表色帶入 defaultSliceColor
+    updateDistinctColorCount();
+    autoInitPartColorMode();
+
+    if(tControls){ tControls.attach(model); }
+
+    finishLoad(true);
+  };
 
   if(ext === 'stl'){
     const reader = new FileReader();
     reader.onload = function(e){
-      const loader = new THREE.STLLoader();
-      const geom = loader.parse(e.target.result);
-      const mat = new THREE.MeshPhongMaterial({color});
-      model = new THREE.Mesh(geom, mat);
-      scene.add(model);
-      centerModel();
-      document.getElementById('slice-button').disabled = false;
+      try{
+        const loader = new THREE.STLLoader();
+        const geom = loader.parse(e.target.result);
+        const mat = new THREE.MeshPhongMaterial({color: uiColorHex});
+        model = new THREE.Mesh(geom, mat);
+        applyCommonPost();
+      }catch(err){
+        console.error('[STL] 載入失敗：', err);
+        alert('STL 載入失敗：' + (err?.message || err));
+        finishLoad(false);
+      }
     };
     reader.readAsArrayBuffer(file);
+
   } else if(ext === 'obj'){
     const reader = new FileReader();
     reader.onload = function(e){
-      const loader = new THREE.OBJLoader();
-      const group = loader.parse(e.target.result);
-      group.traverse(c=>{ if(c.isMesh){ c.material = new THREE.MeshPhongMaterial({color}); } });
-      model = group; scene.add(model); centerModel();
-      document.getElementById('slice-button').disabled = false;
+      try{
+        const loader = new THREE.OBJLoader();
+        const group = loader.parse(e.target.result);
+        group.traverse(c=>{ if(c.isMesh){ c.material = new THREE.MeshPhongMaterial({color: uiColorHex}); } });
+        model = group;
+        applyCommonPost();
+      }catch(err){
+        console.error('[OBJ] 載入失敗：', err);
+        alert('OBJ 載入失敗：' + (err?.message || err));
+        finishLoad(false);
+      }
     };
     reader.readAsText(file);
+
   } else if(ext === 'bmp'){
-    const url = URL.createObjectURL(file);
-    const tex = new THREE.TextureLoader().load(url, () => renderer.render(scene,camera));
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshBasicMaterial({map: tex, side: THREE.DoubleSide}));
-    model = plane; scene.add(model); centerModel();
-    document.getElementById('slice-button').disabled = false;
+    try{
+      const url = URL.createObjectURL(file);
+      const tex = new THREE.TextureLoader().load(url, () => renderer.render(scene,camera));
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshBasicMaterial({map: tex, side: THREE.DoubleSide}));
+      model = plane;
+      applyCommonPost();
+    }catch(err){
+      console.error('[BMP] 載入失敗：', err);
+      alert('BMP 載入失敗：' + (err?.message || err));
+      finishLoad(false);
+    }
+
   } else if(ext === '3mf'){
-    alert('3MF 暫不支援，使用占位方塊替代。');
-    const box = new THREE.Mesh(new THREE.BoxGeometry(100,100,100), new THREE.MeshPhongMaterial({color}));
-    model = box; scene.add(model); centerModel();
-    document.getElementById('slice-button').disabled = false;
+    const reader = new FileReader();
+    reader.onload = function(e){
+      try{
+        const loader = new THREE.ThreeMFLoader();
+        const group = loader.parse(e.target.result);
+        if (!group || !group.children || group.children.length === 0) {
+          throw new Error('3MF 內容為空或不含可顯示的 mesh');
+        }
+        group.traverse(o=>{
+          if (o.isMesh){
+            if (!o.material){ o.material = new THREE.MeshPhongMaterial({ color: uiColorHex }); }
+            if (o.geometry && !o.geometry.attributes.normal){ o.geometry.computeVertexNormals(); }
+          }
+        });
+        model = group;
+        applyCommonPost();
+      }catch(err){
+        console.error('[3MF] 載入失敗：', err);
+        alert('3MF 載入失敗：' + (err?.message || err));
+        finishLoad(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+
   } else {
     alert('不支援的格式');
+    finishLoad(false);
   }
 }
+
+/* ---------- 顏色蒐集 ---------- */
+function avgColorFromTexture(tex){
+  if(!tex) return null;
+  if(textureAvgCache.has(tex)) return textureAvgCache.get(tex);
+  let hex = null;
+  try{
+    const img = tex.image;
+    if(!img) throw new Error('no image');
+    if(img.data && img.width && img.height){
+      const w = Math.min(64, img.width);
+      const h = Math.min(64, img.height);
+      const sx = Math.floor(img.width / w);
+      const sy = Math.floor(img.height / h);
+      let r=0,g=0,b=0,c=0;
+      const data = img.data;
+      const step = 4;
+      for(let y=0;y<img.height;y+=sy){
+        for(let x=0;x<img.width;x+=sx){
+          const idx = (y*img.width + x)*step;
+          const a = data[idx+3];
+          if(a<10) continue;
+          r += data[idx]; g += data[idx+1]; b += data[idx+2]; c++;
+        }
+      }
+      if(c>0){
+        r=Math.round(r/c); g=Math.round(g/c); b=Math.round(b/c);
+        hex = rgbToHex(r,g,b);
+      }
+    }else{
+      const w = 64, h = 64;
+      const c = document.createElement('canvas'); c.width=w; c.height=h;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0,0, w,h);
+      const d = ctx.getImageData(0,0,w,h).data;
+      let r=0,g=0,b=0,cnt=0;
+      for(let i=0;i<d.length;i+=4){
+        const a = d[i+3]; if(a<10) continue;
+        r+=d[i]; g+=d[i+1]; b+=d[i+2]; cnt++;
+      }
+      if(cnt>0){
+        r=Math.round(r/cnt); g=Math.round(g/cnt); b=Math.round(b/cnt);
+        hex = rgbToHex(r,g,b);
+      }
+    }
+  }catch(e){ }
+  textureAvgCache.set(tex, hex);
+  return hex;
+}
+function avgVertexColor(geom){
+  const attr = geom?.attributes?.color;
+  if(!attr) return null;
+  let r=0,g=0,b=0,n=attr.count;
+  if(!n) return null;
+  for(let i=0;i<n;i++){
+    r += attr.getX(i); g += attr.getY(i); b += attr.getZ(i);
+  }
+  r = Math.round((r/n)*255); g = Math.round((g/n)*255); b = Math.round((b/n)*255);
+  return rgbToHex(r,g,b);
+}
+function getMeshDisplayColor(mesh){
+  const mat = mesh.material;
+  if(Array.isArray(mat)){
+    for(const m of mat){
+      if(m?.map){
+        const hx = avgColorFromTexture(m.map);
+        if(hx) return hx;
+      }
+    }
+  }else if(mat?.map){
+    const hx = avgColorFromTexture(mat.map);
+    if(hx) return hx;
+  }
+  const vtx = avgVertexColor(mesh.geometry);
+  if(vtx) return vtx;
+  const matColor = (Array.isArray(mat) ? (mat.find(m=>m?.color)?.color) : mat?.color);
+  if(matColor){ return '#'+matColor.getHexString(); }
+  return defaultSliceColor || '#e74c3c';
+}
+function getRepresentativeColorFromModel(root){
+  if(!root) return null;
+  const weights = {};
+  root.traverse(o=>{
+    if(!o.isMesh) return;
+    const geom = o.geometry;
+    if(!geom?.attributes?.position) return;
+    const tri = geom.index ? (geom.index.count/3) : (geom.attributes.position.count/3);
+    const hex = getMeshDisplayColor(o);
+    weights[hex] = (weights[hex]||0) + tri;
+  });
+  let best=null,bw=-1; for(const k in weights){ if(weights[k]>bw){bw=weights[k]; best=k;} }
+  return best;
+}
+function updateDefaultSliceColorFromModel(){
+  const rep = getRepresentativeColorFromModel(model);
+  defaultSliceColor = rep || (modelColorInput.value || '#e74c3c');
+  modelColorInput.value = defaultSliceColor;
+}
+function updateDistinctColorCount(){
+  const colors = new Set();
+  model.traverse(o=>{ if(!o.isMesh) return; colors.add(getMeshDisplayColor(o)); });
+  modelDistinctColorCount = Math.max(1, colors.size);
+}
+function autoInitPartColorMode(){
+  const shouldUseMulti = (modelDistinctColorCount >= 2);
+  usePartColorsChk.checked = shouldUseMulti;
+  usePartColorsChk.disabled = !shouldUseMulti;
+  colorHint.textContent = shouldUseMulti ? '已自動偵測到多色模型' : '偵測為單色：此選項已停用';
+  uiColor.disabled = usePartColorsChk.checked;
+}
+function getMeshColor(mesh){ return getMeshDisplayColor(mesh); }
 
 /* =============================== UI 小工具 =============================== */
 function updateLayerInfo(cur,total){
   document.getElementById('current-layer').textContent = cur;
   document.getElementById('total-layers').textContent = total;
 }
-function rgbToHex(r,g,b){const h=v=>v.toString(16).padStart(2,'0');return `#${h(r)}${h(g)}${h(b)}`;}
-function grayLevelToHex(level){ // level: 0 白 → 5 黑（接收「有效灰階」）
-  const bins = 6, step = 255/(bins-1);
-  const v = Math.max(0, Math.min(5, level));
-  const g = Math.round(255 - v*step);
-  return rgbToHex(g,g,g);
+function rgbToHex(r,g,b){
+  const h=v=>v.toString(16).padStart(2,'0');
+  return `#${h(r)}${h(g)}${h(b)}`;
 }
-/* UI→有效灰階(0~5)：啟用時回 (ui+1)，未啟用回 0(全白) */
-function effectiveGray(st){ return st.grayEnabled ? Math.min(5,(st.grayLevel||0)+1) : 0; }
 
+/* ==== 清單縮圖（支援多色 + 灰階預覽四種模式） ==== */
+function drawLayerSwatchCanvas(canvas, i){
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!baseSlices[i]) return;
+  const rec = baseSlices[i];
+  const st = layerSettings[i] || defLayerSetting();
+
+  const tmp = document.createElement('canvas');
+  tmp.width = rec.frameW; tmp.height = rec.frameH;
+  const tctx = tmp.getContext('2d');
+
+  let drawn = false;
+  if (usePartColorsChk.checked && rec.parts && rec.parts.length>0){
+    compositeParts(tctx, rec.frameW, rec.frameH, rec.parts, null, 0, 1);
+    drawn = !isCtxEmpty(tctx);
+  }
+  if (!drawn){
+    const m = document.createElement('canvas'); m.width=rec.frameW; m.height=rec.frameH;
+    m.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
+    paintWithMask(tctx, m, st.color);
+  }
+
+  if (st.gray2Enabled){
+    const fullMask = document.createElement('canvas'); fullMask.width=rec.frameW; fullMask.height=rec.frameH;
+    fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
+    applyConcentricGrayscale(tctx, fullMask, st.gray2Steps, st.gray2Mode, true);
+  }
+
+  const sx = rec.x, sy = rec.y, sw = Math.max(1, rec.w), sh = Math.max(1, rec.h);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(tmp, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+}
+
+/* 清單 */
 function buildLayerList(count){
   const list = document.getElementById('layers-list');
   list.innerHTML = '';
@@ -372,7 +812,7 @@ function buildLayerList(count){
 
     const meta = document.createElement('div');
     meta.className = 'layer-meta';
-    meta.textContent = '';
+    meta.textContent = usePartColorsChk.checked ? '多色' : '';
 
     left.appendChild(title);
     left.appendChild(meta);
@@ -380,34 +820,54 @@ function buildLayerList(count){
     const right = document.createElement('div');
     right.className = 'layer-right';
 
-    const swatch = document.createElement('div');
+    const wrap = document.createElement('div');
+    wrap.className = 'swatch-wrap';
+
+    const swatch = document.createElement('canvas');
     swatch.className = 'color-swatch';
-    const st = layerSettings[i] || {};
-    const eff = effectiveGray(st);
-    const swatchColor = (eff>0 ? grayLevelToHex(eff) : (st.color || modelColorInput.value || '#e74c3c'));
-    swatch.style.background = swatchColor;
+    swatch.width = 18; swatch.height = 18;
 
     const colorInput = document.createElement('input');
     colorInput.type = 'color';
-    colorInput.value = (st.color || modelColorInput.value || '#e74c3c');
-    colorInput.className = 'color-input-hidden';
+    colorInput.className = 'color-input-overlay';
+    colorInput.value = (layerSettings[i]?.color) || (defaultSliceColor || '#e74c3c');
+    colorInput.disabled = usePartColorsChk.checked;
+    colorInput.style.pointerEvents = usePartColorsChk.checked ? 'none' : 'auto';
 
-    swatch.addEventListener('click', (ev)=>{ colorInput.click(); ev.stopPropagation(); });
     colorInput.addEventListener('input', (ev)=>{
+      if(usePartColorsChk.checked) return;
       ensureLayerSettings(i).color = ev.target.value;
       if(i === currentSliceIndex) uiColor.value = ev.target.value;
-      const s = ensureLayerSettings(i);
-      const eff2 = effectiveGray(s);
-      swatch.style.background = (eff2>0 ? grayLevelToHex(eff2) : s.color);
+      drawLayerSwatchCanvas(swatch, i);
       renderSlice(currentSliceIndex);
     });
 
-    right.appendChild(swatch);
-    right.appendChild(colorInput);
+    drawLayerSwatchCanvas(swatch, i);
+
+    wrap.appendChild(swatch);
+    wrap.appendChild(colorInput);
+    right.appendChild(wrap);
+
     item.appendChild(left);
     item.appendChild(right);
-    item.addEventListener('click', ()=>{ renderSlice(i); highlightLayerInList(i); });
+    item.addEventListener('click', ()=>{
+      setTab('slice');
+      renderSlice(i);
+      highlightLayerInList(i);
+    });
     list.appendChild(item);
+  }
+}
+
+function syncLayerSlider(){
+  if(baseSlices.length>0){
+    layerSlider.min = 1; layerSlider.max = baseSlices.length;
+    layerSlider.value = currentSliceIndex + 1;
+    if(document.getElementById('slice-tab').classList.contains('active')){
+      layerSlider.style.display = 'block';
+    }
+  }else{
+    layerSlider.style.display = 'none';
   }
 }
 
@@ -416,12 +876,20 @@ function highlightLayerInList(index){
   const items = document.querySelectorAll('.layer-item');
   items.forEach((el,i)=>{ if(i === index) el.classList.add('active'); else el.classList.remove('active'); });
 
-  ensureLayerSettings(index);
-  uiColor.value       = layerSettings[index].color;
-  uiGray.value        = String(layerSettings[index].grayLevel); // 0~4
-  uiGrayEnable.checked= !!layerSettings[index].grayEnabled;
-  uiGray.disabled     = !uiGrayEnable.checked;
-  uiPixel.value       = String(layerSettings[index].pixelLevel);
+  const st = ensureLayerSettings(index);
+  uiColor.value       = st.color;
+  uiColor.disabled    = usePartColorsChk.checked;
+
+  // 四模式灰階 UI 同步
+  uiGray2Enable.checked = !!st.gray2Enabled;
+  uiGray2Steps.disabled = !st.gray2Enabled;
+  uiGray2Mode.disabled  = !st.gray2Enabled;
+  uiGray2Steps.value    = String(st.gray2Steps);
+  uiGray2StepsLabel.textContent = String(st.gray2Steps);
+  uiGray2Mode.value     = st.gray2Mode;
+
+  uiPixel.value       = String(st.pixelLevel);
+  syncLayerSlider();
 }
 
 /* =============================== 產生切片（Y=常數 → XZ） =============================== */
@@ -431,23 +899,31 @@ function generateSlices(){
   sliceThickness = parseFloat(layerHeightInput.value);
   if(isNaN(sliceThickness) || sliceThickness <= 0){ alert('請輸入正確層厚'); return; }
 
+  // 清空
   baseSlices = [];
   layerSettings = [];
   contentBounds = { has:false, minX:Infinity, minY:Infinity, maxX:-Infinity, maxY:-Infinity };
+  growthGroup.clear(); growthBuilt=false; growthGroup.visible=false;
 
   const box = new THREE.Box3().setFromObject(model);
   const minY = box.min.y, maxY = box.max.y;
   const yRange = maxY - minY;
   const layerCount = Math.max(1, Math.ceil(yRange / sliceThickness));
 
+  sliceBounds.yMin = minY;
+
   const size = box.getSize(new THREE.Vector3());
   const pxPerUnit = choosePxPerUnitXZ(size);
+  pxPerUnitGlobal = pxPerUnit;
   const frameW = clamp(Math.round(Math.max(1,size.x) * pxPerUnit), MIN_CANVAS, MAX_CANVAS);
   const frameH = clamp(Math.round(Math.max(1,size.z) * pxPerUnit), MIN_CANVAS, MAX_CANVAS);
   frameWGlobal = frameW; frameHGlobal = frameH;
 
   const xMin = box.min.x, xMax = box.max.x;
   const zMin = box.min.z, zMax = box.max.z;
+  sliceBounds.xMin = xMin; sliceBounds.xMax = xMax;
+  sliceBounds.zMin = zMin; sliceBounds.zMax = zMax;
+
   const xRange = Math.max(1e-9, xMax - xMin);
   const zRange = Math.max(1e-9, zMax - zMin);
   const projectXZ = (v)=> {
@@ -469,19 +945,22 @@ function generateSlices(){
 
     const full = document.createElement('canvas');
     full.width = frameW; full.height = frameH;
-    const ctx = full.getContext('2d');
-    ctx.clearRect(0,0,frameW,frameH);
+    const fullCtx = full.getContext('2d');
+    fullCtx.clearRect(0,0,frameW,frameH);
 
-    const segs = [];
-    const coplanarPolys = [];
-    const EPS = 1e-7;
+    const parts = [];
 
     meshes.forEach(m=>{
+      const segs = [];
+      const coplanarPolys = [];
+      const EPS = 1e-7;
+
       const geom = m.geometry;
       const pos = geom.attributes.position;
       const idx = geom.index ? geom.index.array : null;
       const matW = m.matrixWorld;
       const triCount = idx ? Math.floor(idx.length/3) : Math.floor(pos.count/3);
+
       for(let t=0; t<triCount; t++){
         if(idx){
           v0.fromBufferAttribute(pos, idx[t*3+0]).applyMatrix4(matW);
@@ -527,39 +1006,50 @@ function generateSlices(){
           if(ipts[0][0]!==ipts[1][0] || ipts[0][1]!==ipts[1][1]) segs.push([ipts[0], ipts[1]]);
         }
       }
+
+      const partCanvas = document.createElement('canvas');
+      partCanvas.width = frameW; partCanvas.height = frameH;
+      const pctx = partCanvas.getContext('2d');
+
+      const loops = buildLoopsFromSegments(segs);
+      pctx.fillStyle = '#000000';
+      pctx.beginPath();
+      loops.forEach(loop=>{
+        if(loop.length<3) return;
+        pctx.moveTo(loop[0][0], loop[0][1]);
+        for(let i=1;i<loop.length;i++) pctx.lineTo(loop[i][0], loop[i][1]);
+        pctx.closePath();
+      });
+      coplanarPolys.forEach(poly=>{
+        pctx.moveTo(poly[0][0], poly[0][1]);
+        pctx.lineTo(poly[1][0], poly[1][1]);
+        pctx.lineTo(poly[2][0], poly[2][1]);
+        pctx.closePath();
+      });
+      pctx.fill('evenodd');
+
+      fullCtx.drawImage(partCanvas, 0, 0);
+
+      const crop = cropCanvasWithBounds(partCanvas);
+      if(!crop.isEmpty){
+        parts.push({ mask: crop.canvas, x: crop.minX, y: crop.minY, w: crop.w, h: crop.h, color: getMeshColor(m) });
+        contentBounds.has = true;
+        contentBounds.minX = Math.min(contentBounds.minX, crop.minX);
+        contentBounds.minY = Math.min(contentBounds.minY, crop.minY);
+        contentBounds.maxX = Math.max(contentBounds.maxX, crop.minX + crop.w - 1);
+        contentBounds.maxY = Math.max(contentBounds.maxY, crop.minY + crop.h - 1);
+      }
     });
 
-    const loops = buildLoopsFromSegments(segs);
+    const fullCrop = cropCanvasWithBounds(full);
 
-    ctx.fillStyle = '#000000';
-    ctx.beginPath();
-    loops.forEach(loop=>{
-      if(loop.length<3) return;
-      ctx.moveTo(loop[0][0], loop[0][1]);
-      for(let i=1;i<loop.length;i++) ctx.lineTo(loop[i][0], loop[i][1]);
-      ctx.closePath();
+    baseSlices.push({
+      frameW, frameH,
+      mask: fullCrop.canvas, x: fullCrop.minX, y: fullCrop.minY, w: fullCrop.w, h: fullCrop.h,
+      parts
     });
-    coplanarPolys.forEach(poly=>{
-      ctx.moveTo(poly[0][0], poly[0][1]);
-      ctx.lineTo(poly[1][0], poly[1][1]);
-      ctx.lineTo(poly[2][0], poly[2][1]);
-      ctx.closePath();
-    });
-    ctx.fill('evenodd');
 
-    const crop = cropCanvasWithBounds(full);
-    baseSlices.push({ mask: crop.canvas, x: crop.minX, y: crop.minY, w: crop.w, h: crop.h, frameW: frameW, frameH: frameH });
-
-    if(!crop.isEmpty){
-      contentBounds.has = true;
-      contentBounds.minX = Math.min(contentBounds.minX, crop.minX);
-      contentBounds.minY = Math.min(contentBounds.minY, crop.minY);
-      contentBounds.maxX = Math.max(contentBounds.maxX, crop.minX + crop.w - 1);
-      contentBounds.maxY = Math.max(contentBounds.maxY, crop.minY + crop.h - 1);
-    }
-
-    /* 預設層色 = 當前模型顏色 */
-    layerSettings.push({ color: modelColorInput.value || '#e74c3c', grayLevel: 0, grayEnabled: false, pixelLevel: 0 });
+    layerSettings.push(defLayerSetting());
   }
 
   updateLayerInfo(1, baseSlices.length);
@@ -568,6 +1058,18 @@ function generateSlices(){
   renderSlice(currentSliceIndex);
   document.getElementById('export-all-folder').disabled = (baseSlices.length===0);
   layoutSliceCanvas();
+  syncLayerSlider();
+
+  // 成長視圖 UI 範圍
+  growthSlider.min = 0;
+  growthSlider.max = String(baseSlices.length);
+  growthSlider.value = "0";
+  growthInput.min = 0;
+  growthInput.max = String(baseSlices.length);
+}
+
+function defLayerSetting(){
+  return { color: defaultSliceColor || '#e74c3c', gray2Enabled:false, gray2Steps:5, gray2Mode:'centroid-in', pixelLevel:0 };
 }
 
 /* ---------- 交線段 → 封閉輪廓重建 ---------- */
@@ -661,7 +1163,7 @@ function cropCanvasWithBounds(srcCanvas){
 
 /* =============================== 解析度選擇 =============================== */
 function choosePxPerUnitXZ(sizeVec3){
-  const targetMaxPx = 1000;
+  const targetMaxPx = getPxCap();
   const maxSide = Math.max(sizeVec3.x, sizeVec3.z);
   if (maxSide <= 0) return DEFAULT_PX_PER_UNIT;
   const pxPer = targetMaxPx / maxSide;
@@ -669,7 +1171,14 @@ function choosePxPerUnitXZ(sizeVec3){
 }
 function clamp(v, minv, maxv){ return Math.max(minv, Math.min(maxv, v)); }
 
-/* =============================== 視覺處理 =============================== */
+/* =============================== 視覺處理（四種灰階模式，分區域） =============================== */
+function isCtxEmpty(ctx){
+  const w = ctx.canvas.width, h = ctx.canvas.height;
+  if (!w || !h) return true;
+  const data = ctx.getImageData(0,0,w,h).data;
+  for(let i=3;i<data.length;i+=4) if(data[i] !== 0) return false;
+  return true;
+}
 function paintWithMask(dstCtx, maskCanvas, color){
   const w = dstCtx.canvas.width, h = dstCtx.canvas.height;
   dstCtx.clearRect(0,0,w,h);
@@ -679,50 +1188,284 @@ function paintWithMask(dstCtx, maskCanvas, color){
   dstCtx.drawImage(maskCanvas, 0, 0);
   dstCtx.globalCompositeOperation = 'source-over';
 }
+function compositeParts(dstCtx, frameW, frameH, parts, colorOverride, _unusedGray, factor){
+  const f = Math.max(1, Math.floor(factor));
+  const W = frameW * f, H = frameH * f;
 
-/* 六段灰階：0 白 → 5 黑（覆蓋顏色） */
-function applySixLevelGrayscale(ctx, w, h, level){
-  level = Math.max(0, Math.min(5, Math.floor(level)));
-  const bins = 6, step = 255/(bins-1);
-  const val = Math.round(255 - level*step);
+  const big = document.createElement('canvas');
+  big.width = W; big.height = H;
+  const bctx = big.getContext('2d');
+
+  parts.forEach(part=>{
+    const pw = part.w * f, ph = part.h * f;
+    const px = part.x * f, py = part.y * f;
+
+    const t = document.createElement('canvas');
+    t.width = pw; t.height = ph;
+    const tctx = t.getContext('2d');
+
+    tctx.fillStyle = colorOverride || part.color || '#e74c3c';
+    tctx.fillRect(0,0,pw,ph);
+    tctx.globalCompositeOperation = 'destination-in';
+    tctx.imageSmoothingEnabled = false;
+    tctx.drawImage(part.mask, 0,0, part.w, part.h, 0,0, pw, ph);
+    tctx.globalCompositeOperation = 'source-over';
+
+    bctx.drawImage(t, px, py);
+  });
+
+  dstCtx.clearRect(0,0,frameW,frameH);
+  dstCtx.imageSmoothingEnabled = true;
+  dstCtx.drawImage(big, 0,0, W,H, 0,0, frameW,frameH);
+}
+
+/* --- 灰階輔助：區塊標記、邊界距離場（等距圈層），每區域各自質心 --- */
+function buildMaskBinary(maskCanvas){
+  const w = maskCanvas.width, h = maskCanvas.height;
+  const ctx = maskCanvas.getContext('2d');
   const img = ctx.getImageData(0,0,w,h);
   const d = img.data;
-  for(let i=0;i<d.length;i+=4){
-    if(d[i+3]===0) continue;
-    d[i]=d[i+1]=d[i+2]=val;
+  const bin = new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++){
+    const r=d[i*4], g=d[i*4+1], b=d[i*4+2], a=d[i*4+3];
+    bin[i] = (a!==0 && !(r>250 && g>250 && b>250)) ? 1 : 0; // 非白且不透明視為形狀
+  }
+  return {w,h,bin};
+}
+function labelConnected(bin, w, h){
+  const labels = new Int32Array(w*h).fill(-1);
+  const regions = [];
+  const qx = new Int32Array(w*h);
+  const qy = new Int32Array(w*h);
+  let qh=0, qt=0;
+  let id=0;
+
+  const push=(x,y)=>{ qx[qt]=x; qy[qt]=y; qt++; };
+  const pop=()=>{ const x=qx[qh], y=qy[qh]; qh++; return [x,y]; };
+
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const idx = y*w+x;
+      if(bin[idx]===0 || labels[idx]!==-1) continue;
+      // 新區
+      qh=0; qt=0;
+      push(x,y);
+      labels[idx]=id;
+
+      let area=0, sx=0, sy=0;
+      while(qh<qt){
+        const [cx,cy]=pop();
+        const i=cy*w+cx;
+        area++; sx+=cx; sy+=cy;
+
+        // 4-neighbors
+        if(cx>0){
+          const ni=cy*w+(cx-1);
+          if(bin[ni]===1 && labels[ni]===-1){ labels[ni]=id; push(cx-1,cy); }
+        }
+        if(cx<w-1){
+          const ni=cy*w+(cx+1);
+          if(bin[ni]===1 && labels[ni]===-1){ labels[ni]=id; push(cx+1,cy); }
+        }
+        if(cy>0){
+          const ni=(cy-1)*w+cx;
+          if(bin[ni]===1 && labels[ni]===-1){ labels[ni]=id; push(cx,cy-1); }
+        }
+        if(cy<h-1){
+          const ni=(cy+1)*w+cx;
+          if(bin[ni]===1 && labels[ni]===-1){ labels[ni]=id; push(cx,cy+1); }
+        }
+      }
+      regions.push({ id, area, cx: sx/area, cy: sy/area, maxCentroidR: 1, maxEdgeDist:1 });
+      id++;
+    }
+  }
+  return {labels, regions};
+}
+function edgeDistanceTransform(bin, w, h){
+  const INF = 1e9;
+  const dist = new Float32Array(w*h);
+  for(let i=0;i<w*h;i++) dist[i] = bin[i]===0 ? 0 : INF;
+
+  // forward pass
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const i=y*w+x;
+      if(dist[i]===0) continue;
+      let v = dist[i];
+      if(x>0) v = Math.min(v, dist[i-1] + 1);
+      if(y>0) v = Math.min(v, dist[i-w] + 1);
+      if(x>0 && y>0) v = Math.min(v, dist[i-w-1] + Math.SQRT2);
+      if(x<w-1 && y>0) v = Math.min(v, dist[i-w+1] + Math.SQRT2);
+      dist[i]=v;
+    }
+  }
+  // backward pass
+  for(let y=h-1;y>=0;y--){
+    for(let x=w-1;x>=0;x--){
+      const i=y*w+x;
+      if(dist[i]===0) continue;
+      let v = dist[i];
+      if(x<w-1) v = Math.min(v, dist[i+1] + 1);
+      if(y<h-1) v = Math.min(v, dist[i+w] + 1);
+      if(x<w-1 && y<h-1) v = Math.min(v, dist[i+w+1] + Math.SQRT2);
+      if(x>0 && y<h-1) v = Math.min(v, dist[i+w-1] + Math.SQRT2);
+      dist[i]=v;
+    }
+  }
+  return dist;
+}
+/* 主函式：四種模式
+   mode ∈ {'centroid-in','centroid-out','edge-in','edge-out'}
+   若同一層有多個不連通區塊，質心 / 邊界距離均各自獨立計算 */
+function applyConcentricGrayscale(ctx, maskFull, steps, mode, addWhiteBg = true){
+  steps = Math.max(2, Math.min(10, steps|0));
+
+  // 需要時才鋪白底（預覽/匯出/清單縮圖要白底；成長視圖不要）
+  const w = ctx.canvas.width, h = ctx.canvas.height;
+  if (addWhiteBg){
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0,0,w,h);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  const {w:mw, h:mh, bin} = buildMaskBinary(maskFull);
+  const {labels, regions} = labelConnected(bin, mw, mh);
+
+  // 邊界距離場（edge 模式用）
+  const edgeDist = edgeDistanceTransform(bin, mw, mh);
+  regions.forEach(r=>{ r.maxEdgeDist = 1; });
+  for(let i=0;i<mw*mh;i++){
+    if(bin[i]===1){
+      const id = labels[i];
+      const ed = edgeDist[i];
+      if(ed > regions[id].maxEdgeDist) regions[id].maxEdgeDist = ed;
+    }
+  }
+
+  // 每區域最大「質心距離」
+  regions.forEach(r=>{ r.maxCentroidR = 1; });
+  for(let y=0;y<mh;y++){
+    for(let x=0;x<mw;x++){
+      const idx = y*mw+x;
+      if(bin[idx]!==1) continue;
+      const id = labels[idx];
+      const dx = x - regions[id].cx;
+      const dy = y - regions[id].cy;
+      const rr = Math.hypot(dx,dy);
+      if(rr > regions[id].maxCentroidR) regions[id].maxCentroidR = rr;
+    }
+  }
+
+  const img = ctx.getImageData(0,0,w,h);
+  const d = img.data;
+  const levels = steps - 1; // 形狀內層數
+  const useCentroid = (mode==='centroid-in' || mode==='centroid-out');
+  const invert = (mode==='centroid-out' || mode==='edge-out');
+
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const pi = (y*w + x)*4;
+      const a=d[pi+3];
+      if(a===0) continue;
+
+      // 以是否非白判定為形狀像素（前面已先上色）
+      const r=d[pi], g=d[pi+1], b=d[pi+2];
+      const isShape = !(r>250 && g>250 && b>250);
+      if(!isShape) continue;
+
+      const mi = y*mw + x;
+      if(mi<0 || mi>=mw*mh || bin[mi]===0) continue;
+
+      let t = 0; // 0..1
+      const id = labels[mi];
+      if(useCentroid){
+        const rr = regions[id].maxCentroidR || 1;
+        t = Math.hypot(x-regions[id].cx, y-regions[id].cy) / rr; // 中→外
+      }else{
+        const md = regions[id].maxEdgeDist || 1;
+        t = edgeDist[mi] / md; // 外框→內（距邊界的相對值）
+      }
+      t = Math.max(0, Math.min(1, t));
+      if(invert) t = 1 - t;
+
+      let band = Math.floor(t * levels);
+      band = Math.max(0, Math.min(levels-1, band));
+      const gray = Math.round((band+1) * 255 / steps);
+      d[pi]=d[pi+1]=d[pi+2]=gray;
+    }
   }
   ctx.putImageData(img,0,0);
 }
 
-/* 超取樣（0=原始；n=放大(n+1)x 再縮回） */
-function superSampleTo(ctx, maskCanvas, color, grayLevel, factor){
-  const w = ctx.canvas.width, h = ctx.canvas.height;
-  factor = Math.max(1, Math.floor(factor));
+/* =============================== 比例尺繪製（僅預覽） =============================== */
+function drawScaleBar(ctx, w, h){
+  if(!scaleBarEnabled) return;
+  const pxPerUnit = pxPerUnitGlobal || 1;
+  const margin = 16;
+  const targetPx = Math.max(60, Math.min(0.25 * w, 240));
 
-  const big = document.createElement('canvas');
-  big.width = w*factor; big.height = h*factor;
-  const bctx = big.getContext('2d');
+  const targetUnits = targetPx / pxPerUnit;
+  const pow = Math.floor(Math.log10(targetUnits || 1));
+  const bases = [1,2,5];
+  let bestUnits = bases[0]*Math.pow(10, pow), bestDiff = Infinity;
+  for(const b of bases){
+    const u = b*Math.pow(10, pow);
+    const diff = Math.abs(u - targetUnits);
+    if(diff < bestDiff){ bestDiff=diff; bestUnits=u; }
+  }
 
-  const maskBig = document.createElement('canvas');
-  maskBig.width = w*factor; maskBig.height = h*factor;
-  const mctx = maskBig.getContext('2d');
-  mctx.imageSmoothingEnabled = false;
-  mctx.drawImage(maskCanvas, 0,0, maskCanvas.width, maskCanvas.height, 0,0, maskBig.width, maskBig.height);
+  let labelValue = bestUnits, unitStr = 'mm';
+  if (bestUnits >= 1000){
+    labelValue = bestUnits / 1000; unitStr = 'm';
+  } else if (bestUnits >= 10){
+    labelValue = bestUnits / 10; unitStr = 'cm';
+  }
 
-  bctx.fillStyle = color || '#e74c3c';
-  bctx.fillRect(0,0,big.width,big.height);
-  bctx.globalCompositeOperation = 'destination-in';
-  bctx.drawImage(maskBig,0,0);
-  bctx.globalCompositeOperation = 'source-over';
+  let barPx = bestUnits * pxPerUnit;
+  barPx = Math.max(40, Math.min(barPx, w - margin*2));
 
-  if (grayLevel>0) applySixLevelGrayscale(bctx, big.width, big.height, grayLevel);
+  const barH = 6;
+  const x = margin, y = h - margin - barH;
 
-  ctx.clearRect(0,0,w,h);
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(big, 0,0, big.width, big.height, 0,0, w,h);
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(x, y, barPx, barH);
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y); ctx.lineTo(x, y - 8);
+  ctx.moveTo(x + barPx, y); ctx.lineTo(x + barPx, y - 8);
+  ctx.stroke();
+
+  const label = `${formatNumber(labelValue)} ${unitStr}`;
+  ctx.font = '12px system-ui, Arial';
+  const textW = ctx.measureText(label).width;
+  const tx = x + barPx/2 - textW/2;
+  const ty = y - 10;
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillRect(tx - 4, ty - 12, textW + 8, 16);
+  ctx.fillStyle = '#111827';
+  ctx.fillText(label, tx, ty);
+  ctx.restore();
+}
+function formatNumber(n){
+  const s = Math.round(n*100)/100;
+  return (s % 1 === 0) ? String(s) : s.toFixed(2);
 }
 
-/* =============================== 渲染單層 =============================== */
+/* =============================== 渲染單層（預覽用） =============================== */
+function updateActiveLayerSwatchCanvas(){
+  const item = document.querySelectorAll('.layer-item')[currentSliceIndex];
+  if(!item) return;
+  const swatch = item.querySelector('canvas.color-swatch');
+  if(!swatch) return;
+  drawLayerSwatchCanvas(swatch, currentSliceIndex);
+}
 function renderSlice(index){
   if(index < 0 || index >= baseSlices.length) return;
 
@@ -733,32 +1476,56 @@ function renderSlice(index){
   const rec = baseSlices[index];
   const w = rec.frameW, h = rec.frameH;
 
-  const fullMask = document.createElement('canvas');
-  fullMask.width = w; fullMask.height = h;
-  fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
-
   sliceCanvas.width = w;
   sliceCanvas.height = h;
 
-  const st = layerSettings[index] || { color:modelColorInput.value||'#e74c3c', grayLevel:0, grayEnabled:false, pixelLevel:0 };
-  const grayEffective = effectiveGray(st); // 0~5
-
+  const st = layerSettings[index] || defLayerSetting();
   const factor = 1 + (st.pixelLevel||0);
-  if (factor>1){
-    superSampleTo(sliceCtx, fullMask, st.color, grayEffective, factor);
-  }else{
-    paintWithMask(sliceCtx, fullMask, st.color);
-    if (grayEffective > 0) applySixLevelGrayscale(sliceCtx, w, h, grayEffective);
+
+  // 背景白
+  sliceCtx.save();
+  sliceCtx.fillStyle = '#ffffff';
+  sliceCtx.fillRect(0,0,w,h);
+  sliceCtx.restore();
+
+  let drawn = false;
+  if (usePartColorsChk.checked && rec.parts && rec.parts.length>0){
+    compositeParts(sliceCtx, w, h, rec.parts, null, 0, factor);
+    drawn = !isCtxEmpty(sliceCtx);
+  }
+  if (!drawn){
+    const fullMask = document.createElement('canvas');
+    fullMask.width = w; fullMask.height = h;
+    fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
+
+    if (factor>1){
+      compositeParts(
+        sliceCtx, w, h,
+        [{mask: rec.mask, x:rec.x, y:rec.y, w:rec.w, h:rec.h, color: st.color}],
+        st.color, 0, factor
+      );
+    }else{
+      paintWithMask(sliceCtx, fullMask, st.color);
+    }
   }
 
+  // 四模式灰階（若啟用）
+  if (st.gray2Enabled){
+    const fullMask = document.createElement('canvas');
+    fullMask.width = w; fullMask.height = h;
+    fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
+    applyConcentricGrayscale(sliceCtx, fullMask, st.gray2Steps, st.gray2Mode, true);
+  }
+
+  drawScaleBar(sliceCtx, w, h);
   layoutSliceCanvas();
+  updateActiveLayerSwatchCanvas();
+  syncLayerSlider();
 }
 
 /* =============================== 設定助手 + 批次套用 =============================== */
 function ensureLayerSettings(i){
-  if(!layerSettings[i]){
-    layerSettings[i] = { color:modelColorInput.value||'#e74c3c', grayLevel:0, grayEnabled:false, pixelLevel:0 };
-  }
+  if(!layerSettings[i]) layerSettings[i] = defLayerSetting();
   return layerSettings[i];
 }
 function applyToAll(){
@@ -767,62 +1534,238 @@ function applyToAll(){
   ensureLayerSettings(i);
   const src = layerSettings[i];
   for(let k=0; k<layerSettings.length; k++){
-    layerSettings[k] = { color: src.color, grayLevel: src.grayLevel, grayEnabled: src.grayEnabled, pixelLevel: src.pixelLevel };
+    layerSettings[k] = { color: src.color, gray2Enabled: src.gray2Enabled, gray2Steps: src.gray2Steps, gray2Mode: src.gray2Mode, pixelLevel: src.pixelLevel };
   }
   buildLayerList(layerSettings.length);
   renderSlice(i);
   alert('已將目前層設定套用至所有層。');
+  growthBuilt = false;
 }
 
 /* =============================== 即時設定 =============================== */
 uiColor.addEventListener('input', ()=>{
-  if(!baseSlices.length) return;
+  if(!baseSlices.length || usePartColorsChk.checked) return;
   const st = ensureLayerSettings(currentSliceIndex);
   st.color = uiColor.value;
-  const item = document.querySelectorAll('.layer-item')[currentSliceIndex];
-  const swatch = item?.querySelector('.color-swatch');
-  const eff = effectiveGray(st);
-  if(swatch) swatch.style.background = (eff>0 ? grayLevelToHex(eff) : st.color);
   renderSlice(currentSliceIndex);
+  updateActiveLayerSwatchCanvas();
+  growthBuilt = false;
 });
 
-uiGrayEnable.addEventListener('change', ()=>{
-  if(!baseSlices.length) return;
+/* 新灰階：開關 + 參數（四模式） */
+uiGray2Enable.addEventListener('change', ()=>{
   const st = ensureLayerSettings(currentSliceIndex);
-  st.grayEnabled = uiGrayEnable.checked;
-  uiGray.disabled = !st.grayEnabled;
-  const item = document.querySelectorAll('.layer-item')[currentSliceIndex];
-  const swatch = item?.querySelector('.color-swatch');
-  const eff = effectiveGray(st);
-  if(swatch) swatch.style.background = (eff>0 ? grayLevelToHex(eff) : st.color);
+  st.gray2Enabled = uiGray2Enable.checked;
+  uiGray2Steps.disabled = !st.gray2Enabled;
+  uiGray2Mode.disabled  = !st.gray2Enabled;
   renderSlice(currentSliceIndex);
+  updateActiveLayerSwatchCanvas();
+  growthBuilt = false;
 });
-
-uiGray.addEventListener('input', ()=>{
-  if(!baseSlices.length) return;
+uiGray2Steps.addEventListener('input', ()=>{
+  uiGray2StepsLabel.textContent = uiGray2Steps.value;
   const st = ensureLayerSettings(currentSliceIndex);
-  st.grayLevel = parseInt(uiGray.value||'0',10); // 0~4
-  const item = document.querySelectorAll('.layer-item')[currentSliceIndex];
-  const swatch = item?.querySelector('.color-swatch');
-  const eff = effectiveGray(st);
-  if(swatch) swatch.style.background = (eff>0 ? grayLevelToHex(eff) : st.color);
+  st.gray2Steps = parseInt(uiGray2Steps.value,10);
   renderSlice(currentSliceIndex);
+  updateActiveLayerSwatchCanvas();
+  growthBuilt = false;
+});
+uiGray2Mode.addEventListener('change', ()=>{
+  const st = ensureLayerSettings(currentSliceIndex);
+  st.gray2Mode = uiGray2Mode.value;
+  renderSlice(currentSliceIndex);
+  updateActiveLayerSwatchCanvas();
+  growthBuilt = false;
 });
 
 uiPixel.addEventListener('input', ()=>{
   if(!baseSlices.length) return;
   ensureLayerSettings(currentSliceIndex).pixelLevel = parseInt(uiPixel.value||'0',10);
   renderSlice(currentSliceIndex);
+  growthBuilt = false;
 });
 
-/* =============================== 匯出（白底，同步灰階與像素密度） =============================== */
+/* 比例尺切換（僅預覽） */
+toggleScaleBar.addEventListener('change', ()=>{
+  scaleBarEnabled = toggleScaleBar.checked;
+  if(baseSlices.length>0) renderSlice(currentSliceIndex);
+});
+
+/* 多色模式切換（單色時已禁用） */
+usePartColorsChk.addEventListener('change', ()=>{
+  uiColor.disabled = usePartColorsChk.checked;
+  buildLayerList(layerSettings.length);
+  document.querySelectorAll('.color-input-overlay').forEach(inp=>{
+    inp.disabled = usePartColorsChk.checked;
+    inp.style.pointerEvents = usePartColorsChk.checked ? 'none' : 'auto';
+  });
+  if(baseSlices.length>0) renderSlice(currentSliceIndex);
+  growthBuilt = false;
+});
+
+/* =============================== 匯出工具 =============================== */
+function sanitizeName(s){
+  return String(s || '')
+    .replace(/[\\/:*?"<>|]+/g,'_')
+    .replace(/\s+/g,'_')
+    .replace(/_+/g,'_')
+    .replace(/^_+|_+$/g,'')
+    .slice(0,100) || 'output';
+}
+
+async function ensureUniqueSubfolder(parentHandle, baseName){
+  let name = baseName, i = 1;
+  while(true){
+    try{
+      const h = await parentHandle.getDirectoryHandle(name, { create:true });
+      return { name, handle:h };
+    }catch(e){
+      name = `${baseName}_${(++i)}`;
+      if(i>200) throw new Error('無法建立輸出資料夾（名稱衝突過多）');
+    }
+  }
+}
+
+/* 以完整框架渲染單層（不含比例尺） */
+function renderLayerFullFrame(i){
+  const rec = baseSlices[i];
+  const w = rec.frameW, h = rec.frameH;
+
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0,0,w,h);
+
+  const st = layerSettings[i] || defLayerSetting();
+  const factor = 1 + (st.pixelLevel||0);
+
+  let drawn = false;
+  if (usePartColorsChk.checked && rec.parts && rec.parts.length>0){
+    const tmp = document.createElement('canvas'); tmp.width=w; tmp.height=h;
+    const tctx = tmp.getContext('2d');
+    compositeParts(tctx, w, h, rec.parts, null, 0, factor);
+    if(!isCtxEmpty(tctx)){ ctx.drawImage(tmp, 0, 0); drawn = true; }
+  }
+
+  if (!drawn){
+    const fullMask = document.createElement('canvas'); fullMask.width = w; fullMask.height = h;
+    fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
+
+    if (factor>1){
+      compositeParts(
+        ctx, w, h,
+        [{mask: rec.mask, x:rec.x, y:rec.y, w:rec.w, h:rec.h, color: st.color}],
+        st.color, 0, factor
+      );
+    }else{
+      const tmp2 = document.createElement('canvas'); tmp2.width=w; tmp2.height=h;
+      const tctx2 = tmp2.getContext('2d');
+      paintWithMask(tctx2, fullMask, st.color);
+      ctx.drawImage(tmp2, 0, 0);
+    }
+  }
+
+  if (st.gray2Enabled){
+    const fullMask = document.createElement('canvas'); fullMask.width = w; fullMask.height = h;
+    fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
+    applyConcentricGrayscale(ctx, fullMask, st.gray2Steps, st.gray2Mode, true);
+  }
+  return c;
+}
+
+/* 成長視圖貼圖：透明背景（不填白），但套用相同視覺設定 */
+function renderLayerTextureCanvas(i){
+  const rec = baseSlices[i];
+  const w = rec.frameW, h = rec.frameH;
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx = c.getContext('2d');
+
+  const st = layerSettings[i] || defLayerSetting();
+  const factor = 1 + (st.pixelLevel||0);
+
+  let drawn = false;
+  if (usePartColorsChk.checked && rec.parts && rec.parts.length>0){
+    compositeParts(ctx, w, h, rec.parts, null, 0, factor);
+    drawn = !isCtxEmpty(ctx);
+  }
+  if(!drawn){
+    const fullMask = document.createElement('canvas'); fullMask.width = w; fullMask.height = h;
+    fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
+    if (factor>1){
+      compositeParts(
+        ctx, w, h,
+        [{mask: rec.mask, x:rec.x, y:rec.y, w:rec.w, h:rec.h, color: st.color}],
+        st.color, 0, factor
+      );
+    }else{
+      paintWithMask(ctx, fullMask, st.color);
+    }
+  }
+
+  if (st.gray2Enabled){
+    const fullMask = document.createElement('canvas'); fullMask.width = w; fullMask.height = h;
+    fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
+    applyConcentricGrayscale(ctx, fullMask, st.gray2Steps, st.gray2Mode, false);
+  }
+  return c;
+}
+
+/* 輸出固定 2048×2048（置中，等比例，不含比例尺） */
+function renderLayerSquare2048(i){
+  const src = renderLayerFullFrame(i);
+  const SW = src.width, SH = src.height;
+  const OUT = 2048;
+
+  const maxSide = Math.max(SW, SH);
+  const scale = Math.min(1, OUT / (maxSide || 1));
+
+  const tw = Math.round(SW * scale);
+  const th = Math.round(SH * scale);
+
+  const out = document.createElement('canvas');
+  out.width = OUT; out.height = OUT;
+  const octx = out.getContext('2d');
+  octx.fillStyle = '#ffffff';
+  octx.fillRect(0,0,OUT,OUT);
+
+  const ox = Math.floor((OUT - tw) / 2);
+  const oy = Math.floor((OUT - th) / 2);
+  octx.imageSmoothingEnabled = true;
+  octx.drawImage(src, 0, 0, SW, SH, ox, oy, tw, th);
+
+  return { canvas: out, scaledDown: scale < 1 };
+}
+
+function pickMimeExtSafe(requested){
+  const test = document.createElement('canvas');
+  test.width = test.height = 2;
+  const want = (req)=>{
+    if(req==='bmp') return {mime:'image/bmp', ext:'bmp'};
+    if(req==='jpg') return {mime:'image/jpeg', ext:'jpg'};
+    return {mime:'image/png', ext:'png'};
+  };
+  const w = want(requested);
+  let ok = false;
+  try{
+    const dataURL = test.toDataURL(w.mime);
+    ok = dataURL.startsWith(`data:${w.mime}`);
+  }catch(e){ ok = false; }
+  if(ok) return { ...w, fallback:false };
+  return { mime:'image/png', ext:'png', fallback:true };
+}
+
 function exportCurrentSliceImage(format){
   if(baseSlices.length === 0) return;
   const i = currentSliceIndex;
-  const c = renderLayerFullFrame(i);
+
+  const { canvas: out, scaledDown } = renderLayerSquare2048(i);
+  if (scaledDown){
+    alert('原始切片尺寸超過 2048，已等比例縮小至 2048×2048 內。');
+  }
+
   const { mime, ext, fallback } = pickMimeExtSafe(format);
   if(fallback) alert(`瀏覽器不支援 ${format.toUpperCase()}，已自動改為 PNG。`);
-  c.toBlob(blob=>{
+  out.toBlob(blob=>{
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `slice_${i+1}.${ext}`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -851,9 +1794,13 @@ async function exportAllSlicesToFolder(format){
   const pad = String(baseSlices.length).length;
   const fileBase = sanitizeName(baseFolderName);
 
+  let anyScaledDown = false;
+
   for(let i=0; i<baseSlices.length; i++){
-    const c = renderLayerFullFrame(i);
-    const blob = await new Promise(res => c.toBlob(res, mime));
+    const { canvas: out, scaledDown } = renderLayerSquare2048(i);
+    if (scaledDown) anyScaledDown = true;
+
+    const blob = await new Promise(res => out.toBlob(res, mime));
     const idx = String(i+1).padStart(pad,'0');
     const fileName = `${fileBase}_${idx}.${ext}`;
     const fileHandle = await outDir.getFileHandle(fileName, { create:true });
@@ -862,60 +1809,9 @@ async function exportAllSlicesToFolder(format){
   }
 
   const msg = (actualFolderName === baseFolderName)
-    ? `已寫入到資料夾「${actualFolderName}」`
-    : `偵測到同名資料夾，已改存為「${actualFolderName}」`;
-  alert(msg);
-}
-
-/* 產生匯出圖（白底） */
-function renderLayerFullFrame(i){
-  const rec = baseSlices[i];
-  const w = rec.frameW, h = rec.frameH;
-
-  const fullMask = document.createElement('canvas');
-  fullMask.width = w; fullMask.height = h;
-  fullMask.getContext('2d').drawImage(rec.mask, rec.x, rec.y);
-
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0,0,w,h);
-
-  const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
-  const tctx = tmp.getContext('2d');
-
-  const st = layerSettings[i] || { color:modelColorInput.value||'#e74c3c', grayLevel:0, grayEnabled:false, pixelLevel:0 };
-  const grayEffective = effectiveGray(st);
-  const factor = 1 + (st.pixelLevel||0);
-
-  if(factor>1){
-    superSampleTo(tctx, fullMask, st.color, grayEffective, factor);
-  }else{
-    paintWithMask(tctx, fullMask, st.color);
-    if (grayEffective > 0) applySixLevelGrayscale(tctx, w, h, grayEffective);
-  }
-
-  ctx.drawImage(tmp, 0, 0);
-  return c;
-}
-
-/* 要求格式不支援時，自動降級為 PNG */
-function pickMimeExtSafe(requested){
-  const test = document.createElement('canvas');
-  test.width = test.height = 2;
-  const want = (req)=>{
-    if(req==='bmp') return {mime:'image/bmp', ext:'bmp'};
-    if(req==='jpg') return {mime:'image/jpeg', ext:'jpg'};
-    return {mime:'image/png', ext:'png'};
-  };
-  const w = want(requested);
-  let ok = false;
-  try{
-    const dataURL = test.toDataURL(w.mime);
-    ok = dataURL.startsWith(`data:${w.mime}`);
-  }catch(e){ ok = false; }
-  if(ok) return { ...w, fallback:false };
-  return { mime:'image/png', ext:'png', fallback:true };
+    ? `已寫入到資料夾「${actualFolderName}」。`
+    : `偵測到同名資料夾，已改存為「${actualFolderName}」。`;
+  alert(msg + (anyScaledDown ? '\n其中部分切片原尺寸超過 2048，已等比例縮小。' : ''));
 }
 
 /* =============================== 切片視圖置中 =============================== */
@@ -945,122 +1841,287 @@ document.getElementById('file-input').addEventListener('change', e=>{
   const file = e.target.files[0];
   if(file) loadModel(file);
 });
-document.getElementById('center-model').addEventListener('click', centerModel);
-document.getElementById('reset-transform').addEventListener('click', resetTransform);
 
-document.getElementById('toggle-axes').addEventListener('change', e=>{
-  if(e.target.checked){
-    if(!axesHelper){ axesHelper = new THREE.AxesHelper(150); scene.add(axesHelper); }
-  } else {
-    if(axesHelper){ scene.remove(axesHelper); axesHelper = null; }
+document.getElementById('center-model').addEventListener('click', restoreOriginalTransform);
+document.getElementById('reset-transform').addEventListener('click', groundAndCenter);
+
+/* 旋轉工具按鈕（固定世界） */
+document.getElementById('rotate-tool').addEventListener('click', toggleRotateTool);
+function toggleRotateTool(force){
+  if(!tControls || !model) return;
+  const to = (typeof force==='boolean') ? force : !rotateActive;
+  rotateActive = to;
+  tControls.visible = to;
+  tControls.setMode('rotate');
+  tControls.setSpace('world');
+  tControls.showX = tControls.showY = tControls.showZ = true;
+  if(to && tControls.object !== model) tControls.attach(model);
+}
+
+/* 快捷鍵 */
+function onKeyDown(e){
+  const tag = (e.target.tagName||'').toLowerCase();
+  if(tag==='input' || tag==='textarea' || e.metaKey || e.ctrlKey) return;
+
+  if(e.key==='r' || e.key==='R'){
+    toggleRotateTool();
+    e.preventDefault(); return;
   }
-});
 
+  if(rotateActive && tControls){
+    if(e.key==='x' || e.key==='X'){ tControls.showX=true; tControls.showY=false; tControls.showZ=false; e.preventDefault(); }
+    if(e.key==='y' || e.key==='Y'){ tControls.showX=false; tControls.showY=true; tControls.showZ=false; e.preventDefault(); }
+    if(e.key==='z' || e.key==='Z'){ tControls.showX=false; tControls.showY=false; tControls.showZ=true; e.preventDefault(); }
+  }
+}
+
+/* 切片與導覽 */
 document.getElementById('slice-button').addEventListener('click', generateSlices);
+document.getElementById('prev-layer').addEventListener('click', ()=>{
+  if(currentSliceIndex > 0){ setTab('slice'); renderSlice(currentSliceIndex - 1); }
+});
+document.getElementById('next-layer').addEventListener('click', ()=>{
+  if(currentSliceIndex < baseSlices.length - 1){ setTab('slice'); renderSlice(currentSliceIndex + 1); }
+});
+document.getElementById('first-layer').addEventListener('click', ()=>{ setTab('slice'); renderSlice(0); });
+document.getElementById('last-layer').addEventListener('click', ()=>{ setTab('slice'); renderSlice(baseSlices.length - 1); });
 
-document.getElementById('prev-layer').addEventListener('click', ()=>{ if(currentSliceIndex > 0) renderSlice(currentSliceIndex - 1); });
-document.getElementById('next-layer').addEventListener('click', ()=>{ if(currentSliceIndex < baseSlices.length - 1) renderSlice(currentSliceIndex + 1); });
-document.getElementById('first-layer').addEventListener('click', ()=> renderSlice(0));
-document.getElementById('last-layer').addEventListener('click', ()=> renderSlice(baseSlices.length - 1));
+layerSlider.addEventListener('input', ()=>{
+  const v = parseInt(layerSlider.value||'1',10);
+  if(!isNaN(v)){ setTab('slice'); renderSlice(v-1); }
+});
 
 document.getElementById('apply-to-all').addEventListener('click', applyToAll);
 
 document.getElementById('export-button').addEventListener('click', ()=>{
   const type = document.getElementById('export-type').value;
-  if(['stl','obj','3mf'].includes(type)){
-    export3DModel(type);
-  } else if(['bmp','png','jpg'].includes(type)){
-    exportCurrentSliceImage(type);
-  }
+  exportCurrentSliceImage(type);
 });
 document.getElementById('export-all-folder').addEventListener('click', ()=>{
   const type = document.getElementById('export-type').value;
   exportAllSlicesToFolder(type);
 });
 
+/* 頁籤切換 */
 document.getElementById('model-tab').addEventListener('click', ()=> setTab('model'));
 document.getElementById('slice-tab').addEventListener('click', ()=> setTab('slice'));
+document.getElementById('growth-tab').addEventListener('click', ()=> setTab('growth'));
 
-/* =============================== 3D 匯出（保留） =============================== */
-function export3DModel(type){
-  if(!model) return alert('尚未載入模型');
-  let exporter, output;
-  if(type === 'stl'){
-    exporter = new THREE.STLExporter();
-    output = exporter.parse(model);
-    saveString(output, 'model.stl');
-  } else if(type === 'obj'){
-    exporter = new THREE.OBJExporter();
-    output = exporter.parse(model);
-    saveString(output, 'model.obj');
-  } else if(type === '3mf'){
-    alert('3MF 匯出尚未實作，暫存 STL 格式');
-    exporter = new THREE.STLExporter();
-    output = exporter.parse(model);
-    saveString(output, 'model.stl');
-  } else {
-    alert('不支援此 3D 匯出格式');
-  }
+/* 精準旋轉（世界座標） */
+function axisUnit(axis){
+  return axis==='x' ? new THREE.Vector3(1,0,0) :
+         axis==='y' ? new THREE.Vector3(0,1,0) :
+                      new THREE.Vector3(0,0,1);
 }
-function saveString(text, filename){
-  const blob = new Blob([text], {type:'text/plain'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+function applyRelativeWorldRotation(axis, deg){
+  if(!model) return;
+  const rad = THREE.MathUtils.degToRad(deg);
+  const v = axisUnit(axis);
+  model.rotateOnWorldAxis(v, rad);
+  controls.update();
 }
+document.getElementById('btn-rot-rel').addEventListener('click', ()=>{
+  if(!model) return;
+  const axis = rotateAxisSel.value;
+  const deg  = parseFloat(rotateDegInput.value||'0') || 0;
+  applyRelativeWorldRotation(axis, deg);
+});
+document.getElementById('btn-rot-cw').addEventListener('click', ()=>{
+  if(!model) return; applyRelativeWorldRotation(rotateAxisSel.value, 90);
+});
+document.getElementById('btn-rot-ccw').addEventListener('click', ()=>{
+  if(!model) return; applyRelativeWorldRotation(rotateAxisSel.value, -90);
+});
 
-/* =============================== 小工具：命名與避免重名 =============================== */
-function sanitizeName(name){
-  return (name || 'slices')
-    .replace(/[\\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 100);
-}
-async function ensureUniqueSubfolder(parentDirHandle, base){
-  let name = base;
-  for (let i = 0; i < 9999; i++){
-    try{
-      await parentDirHandle.getDirectoryHandle(name, { create: false });
-      name = `${base} (${i+1})`;
-    }catch(e){
-      if (e && e.name === 'NotFoundError'){
-        const handle = await parentDirHandle.getDirectoryHandle(name, { create: true });
-        return { name, handle };
-      }
-      throw e;
-    }
-  }
-  const handle = await parentDirHandle.getDirectoryHandle(`${base} (backup)`, { create: true });
-  return { name: `${base} (backup)`, handle };
-}
+/* 旋轉靈敏度（阻尼 0.05~0.25） */
+dragSensitivityInput.addEventListener('input', ()=>{
+  const v = parseFloat(dragSensitivityInput.value||'0.20');
+  dragSensitivity = Math.max(0.05, Math.min(0.25, isNaN(v)?0.20:v));
+});
 
-/* =============================== 分頁切換 =============================== */
+/* 軸徽章顯示 */
+function updateAxisBadge(){
+  const a = rotateAxisSel.value;
+  axisBadge.innerHTML = '';
+  const dot = document.createElement('span');
+  dot.className = 'dot ' + a;
+  const text = document.createElement('span');
+  text.textContent = a.toUpperCase();
+  axisBadge.appendChild(dot);
+  axisBadge.appendChild(text);
+}
+rotateAxisSel.addEventListener('change', updateAxisBadge);
+updateAxisBadge();
+
+/* =============================== 分頁切換（含成長視圖） =============================== */
 function setTab(tab) {
   const modelTab = document.getElementById('model-tab');
   const sliceTab = document.getElementById('slice-tab');
+  const growthTab = document.getElementById('growth-tab');
   const modelCanvas = document.getElementById('model-canvas');
+
+  modelTab.classList.remove('active');
+  sliceTab.classList.remove('active');
+  growthTab.classList.remove('active');
 
   if (tab === 'model') {
     modelTab.classList.add('active');
-    sliceTab.classList.remove('active');
     modelCanvas.style.display = 'block';
     sliceCanvas.style.display = 'none';
-  } else {
+    layerSlider.style.display = 'none';
+    if(model) model.visible = true;
+    growthGroup.visible = false;
+    if(tControls) tControls.visible = rotateActive;
+
+  } else if (tab === 'slice') {
     sliceTab.classList.add('active');
-    modelTab.classList.remove('active');
     sliceCanvas.style.display = 'block';
     modelCanvas.style.display = 'none';
+    if(tControls) tControls.visible = false;
     renderSlice(currentSliceIndex);
     layoutSliceCanvas();
+    syncLayerSlider();
+
+  } else { // growth
+    growthTab.classList.add('active');
+    modelCanvas.style.display = 'block';
+    sliceCanvas.style.display = 'none';
+    layerSlider.style.display = 'none';
+
+    if(tControls) tControls.visible = false;
+    if(model) model.visible = false;
+    ensureGrowthBuilt();
+    growthGroup.visible = true;
   }
 }
+
+/* =============================== 成長視圖（真實逐層堆疊） =============================== */
+function ensureGrowthBuilt(){
+  if(!baseSlices.length) return;
+  if(growthBuilt) return;
+
+  growthGroup.clear();
+
+  const width = (sliceBounds.xMax - sliceBounds.xMin) || 1;
+  const depth = (sliceBounds.zMax - sliceBounds.zMin) || 1;
+
+  for(let i=0;i<baseSlices.length;i++){
+    const layerCanvas = renderLayerTextureCanvas(i);
+    const tex = new THREE.CanvasTexture(layerCanvas);
+    tex.minFilter = THREE.LinearMipMapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.needsUpdate = true;
+
+    const geo = new THREE.PlaneGeometry(width, depth);
+    geo.rotateX(-Math.PI/2);
+
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      alphaTest: 0.02,
+      depthWrite: true,
+      side: THREE.DoubleSide
+    });
+
+    const mesh = new THREE.Mesh(geo, mat);
+    const y = sliceBounds.yMin + (i+0.5)*sliceThickness;
+    mesh.position.set(0, y, 0);
+    mesh.visible = false;
+    growthGroup.add(mesh);
+  }
+
+  growthShownLayers = 0;
+  setGrowthLayersVisible(growthShownLayers);
+  growthBuilt = true;
+}
+
+function setGrowthLayersVisible(n){
+  const count = Math.max(0, Math.min(n|0, growthGroup.children.length));
+  growthGroup.children.forEach((m, idx)=>{ m.visible = (idx < count); });
+  growthShownLayers = count;
+  growthSlider.value = String(count);
+  growthInput.value = String(count);
+}
+
+function playGrowth(toTarget){
+  if(!growthBuilt) ensureGrowthBuilt();
+  if(!growthBuilt) return;
+
+  const target = Math.max(0, Math.min(toTarget ?? growthGroup.children.length, growthGroup.children.length));
+  const speed = Math.max(1, Math.min(60, parseFloat(growthSpeedInput.value||'5')||5));
+
+  growthPlaying = true;
+  growthAnimateBtn.textContent = '播放中…（再按暫停）';
+
+  let last = performance.now();
+  let acc = growthShownLayers;
+
+  const step = (ts)=>{
+    if(!growthPlaying) return;
+    const dt = Math.min(0.05, (ts - last) / 1000);
+    last = ts;
+
+    acc += speed * dt;
+    const show = Math.min(Math.floor(acc), target);
+    if(show !== growthShownLayers){
+      setGrowthLayersVisible(show);
+    }
+
+    if (show >= target){
+      stopGrowth();
+      return;
+    }
+    growthRAF = requestAnimationFrame(step);
+  };
+  growthRAF = requestAnimationFrame(step);
+}
+
+function stopGrowth(){
+  growthPlaying = false;
+  cancelAnimationFrame(growthRAF);
+  growthAnimateBtn.textContent = '播放/暫停';
+}
+
+/* 面板互動（成長視圖） */
+growthSlider.addEventListener('input', e=>{
+  const n = parseInt(e.target.value||'0',10) || 0;
+  ensureGrowthBuilt();
+  setGrowthLayersVisible(n);
+});
+
+growthInput.addEventListener('change', e=>{
+  const n = parseInt(e.target.value||'0',10) || 0;
+  ensureGrowthBuilt();
+  setGrowthLayersVisible(n);
+});
+
+growthAnimateBtn.addEventListener('click', ()=>{
+  if (growthPlaying){ stopGrowth(); return; }
+  setTab('growth');
+  ensureGrowthBuilt();
+  playGrowth(growthGroup.children.length);
+});
+
+growthStopBtn.addEventListener('click', ()=>{
+  stopGrowth();
+});
+
+document.getElementById('growth-play-to-target').addEventListener('click', ()=>{
+  const tgt = Math.max(0, Math.min(parseInt(growthInput.value||'0',10) || 0, baseSlices.length));
+  setGrowthLayersVisible(0);
+  setTab('growth');
+  ensureGrowthBuilt();
+  playGrowth(tgt);
+});
 
 /* =============================== 啟動 =============================== */
 initThree();
 setTab('model');
+finishLoad(false);
 </script>
 </body>
 </html>
+
+
 
