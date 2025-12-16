@@ -1045,12 +1045,21 @@ function axisUnit(axis){
 function applyRelativeWorldRotation(axis, deg){
   const sel = getSelectedParts();
   if(sel.length===0) return;
+
   const rad = THREE.MathUtils.degToRad(deg);
   const v = axisUnit(axis);
-  sel.forEach(p=> p.root.rotateOnWorldAxis(v, rad));
+
+  sel.forEach(p=>{
+    p.root.rotateOnWorldAxis(v, rad);
+
+    // ★ 旋轉後自動貼地：把最低點對齊 z=0
+    groundPartToPlane(p);
+  });
+
   controls.update();
   updatePartsHelpers();
 }
+
 
 document.getElementById('btn-rot-rel').addEventListener('click', ()=>{
   applyRelativeWorldRotation(rotateAxisSel.value, parseFloat(rotateDegInput.value||'0')||0);
@@ -1722,7 +1731,7 @@ function applyConcentricGrayscaleSmart(ctx, recLike, st, an, drawWhiteBG){
         let maxR = r._maxR; if(!maxR){
           let m=1;
           for(let yy=0;yy<h;yy++){
-            for(let xx=0;xx<h;xx++){
+            for(let xx=0;xx<w;xx++){
               const j=yy*w+xx; if(bin[j]===0||labels[j]!==rid) continue;
               const cand = Math.hypot(xx - r.cx, yy - r.cy);
               if(cand>m) m=cand;
@@ -1916,76 +1925,144 @@ function polygonArea(poly){
   return s*0.5;
 }
 
-/* 修正版：保留每條邊，避免內孔被錯誤消除 */
-function buildLoopsFromSegmentsSmart(segs, SNAP){
-  const q = p => [ Math.round(p[0]/SNAP)*SNAP, Math.round(p[1]/SNAP)*SNAP ];
-  const key = p => `${p[0].toFixed(4)}_${p[1].toFixed(4)}`;
+//* =============================== 切片：線段直接光柵化（保孔洞） =============================== */
+/* 用 even-odd 掃描線把「切平面線段」直接轉成 mask：不需要重建 polygon loops，孔洞不會被串掉 */
 
-  const pts = new Map();
-  const getId = (p)=>{
-    const qp=q(p);
-    const k=key(qp);
-    if(!pts.has(k)) pts.set(k,{p:qp,edges:new Set()});
-    return k;
+function rasterizeSegmentsToMaskCanvas(segs, W, H){
+  if(!segs || segs.length < 2) return null;
+
+  // 量化步距：太大會把薄壁/小孔黏在一起；太小會導致端點對不上
+  // 這裡把它限制在 [0.001, 0.02] pixel
+  const qStep = Math.max(0.001, Math.min(0.02, getAutoSnap(W, H)));
+
+  const qKey = (p)=>{
+    const ix = Math.round(p[0] / qStep);
+    const iy = Math.round(p[1] / qStep);
+    return `${ix},${iy}`;
+  };
+  const fromKey = (k)=>{
+    const t = k.split(',');
+    const ix = parseInt(t[0],10), iy = parseInt(t[1],10);
+    return [ix*qStep, iy*qStep];
   };
 
-  const edges=[];
-  for(const [a,b] of segs){
-    const ka=getId(a), kb=getId(b);
-    if(ka===kb) continue;
-    pts.get(ka).edges.add(kb);
-    pts.get(kb).edges.add(ka);
-    edges.push([ka,kb]);
+  // 1) 去重複線段（避免 parity 被多算，孔洞反而被填掉）
+  const edgeSet = new Set();
+  const edges = []; // [x0,y0,x1,y1]
+  for(const s of segs){
+    if(!s || s.length < 2) continue;
+    const a = s[0], b = s[1];
+    if(!a || !b) continue;
+    if(!isFinite(a[0]) || !isFinite(a[1]) || !isFinite(b[0]) || !isFinite(b[1])) continue;
+
+    const ka = qKey(a), kb = qKey(b);
+    if(ka === kb) continue;
+    const ek = (ka < kb) ? `${ka}|${kb}` : `${kb}|${ka}`;
+    if(edgeSet.has(ek)) continue;
+    edgeSet.add(ek);
+
+    const A = fromKey(ka), B = fromKey(kb);
+    const dx = A[0]-B[0], dy = A[1]-B[1];
+    if(dx*dx + dy*dy < 1e-8) continue; // 太短的丟掉
+
+    edges.push([A[0],A[1],B[0],B[1]]);
   }
+  if(edges.length < 2) return null;
 
-  const used = new Set();
-  const ekey=(a,b)=>a<b?`${a}|${b}`:`${b}|${a}`;
-  const mark=(a,b)=>used.add(ekey(a,b));
-  const seen=(a,b)=>used.has(ekey(a,b));
+  // 2) 建 Edge Table（Active Edge Table）
+  const buckets = Array.from({length:H}, ()=>[]);
+  for(const e of edges){
+    let x0=e[0], y0=e[1], x1=e[2], y1=e[3];
 
-  const angle=(A,B)=>Math.atan2(B[1]-A[1], B[0]-A[0]);
+    // 忽略水平邊（避免掃描線重複交點）
+    if(Math.abs(y0 - y1) < 1e-9) continue;
 
-  const loops=[];
-  for(const [ka0,kb0] of edges){
-    if(seen(ka0,kb0)) continue;
-    let loop=[ka0];
-    let prev=ka0, curr=kb0;
-    mark(prev,curr);
-    let lastAng=angle(pts.get(prev).p, pts.get(curr).p);
-
-    while(true){
-      loop.push(curr);
-      const nbrs=Array.from(pts.get(curr).edges);
-      const candidates=nbrs.filter(n=>n!==prev && !seen(curr,n));
-      if(candidates.length===0){
-        if(pts.get(curr).edges.has(loop[0]) && !seen(curr,loop[0])){
-          mark(curr,loop[0]);
-          loop.push(loop[0]);
-        }
-        break;
-      }
-      let best=null, bestDelta=Infinity;
-      for(const n of candidates){
-        let d=angle(pts.get(curr).p, pts.get(n).p) - lastAng;
-        while(d<=-Math.PI) d+=2*Math.PI;
-        while(d> Math.PI) d-=2*Math.PI;
-        const ad=Math.abs(d);
-        if(ad<bestDelta){ bestDelta=ad; best=n; }
-      }
-      prev=curr;
-      curr=best;
-      mark(prev,curr);
-      lastAng=angle(pts.get(prev).p, pts.get(curr).p);
-      if(curr===loop[0]){ loop.push(curr); break; }
+    // 保證 y0 < y1
+    if(y0 > y1){
+      const tx=x0; x0=x1; x1=tx;
+      const ty=y0; y0=y1; y1=ty;
     }
 
-    if(loop.length>=4 && loop[0]===loop[loop.length-1]){
-      const poly=loop.slice(0,-1).map(k=>pts.get(k).p);
-      if(Math.abs(polygonArea(poly))>1e-2) loops.push(poly);
-    }
+    // 完全不在畫布高度範圍附近，略過
+    if(y1 < -1 || y0 > H+1) continue;
+
+    const invSlope = (x1 - x0) / (y1 - y0);
+
+    // 掃描線用 pixel center：y + 0.5
+    // 採用「上端點不含」規則：y in [y0, y1)
+    let yStart = Math.ceil(y0 - 0.5);
+    let yEnd   = Math.ceil(y1 - 0.5); // exclusive
+
+    yStart = clamp(yStart, 0, H-1);
+    yEnd   = clamp(yEnd,   0, H);
+
+    if(yStart >= yEnd) continue;
+
+    const yCenter = yStart + 0.5;
+    const xAtStart = x0 + (yCenter - y0) * invSlope;
+
+    buckets[yStart].push({ yEnd, x: xAtStart, invSlope });
   }
-  return loops;
+
+  // 3) 光柵化：只寫 alpha（mask = 黑色+alpha）
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(W, H);
+  const data = img.data;
+
+  const active = [];
+  let any = false;
+
+  for(let y=0; y<H; y++){
+    const add = buckets[y];
+    if(add && add.length) active.push(...add);
+
+    // 移除結束的邊
+    for(let i=active.length-1; i>=0; i--){
+      if(y >= active[i].yEnd) active.splice(i,1);
+    }
+
+    if(active.length >= 2){
+      active.sort((a,b)=> a.x - b.x);
+
+      const rowBase = y * W * 4;
+
+      // even-odd：兩兩配對填滿
+      for(let i=0; i+1<active.length; i+=2){
+        let xA = active[i].x;
+        let xB = active[i+1].x;
+        if(xA > xB){ const t=xA; xA=xB; xB=t; }
+
+        // 對應 pixel center：x+0.5
+        let xs = Math.ceil(xA - 0.5);
+        let xe = Math.floor(xB - 0.5);
+
+        if(xe < 0 || xs >= W) continue;
+        xs = clamp(xs, 0, W-1);
+        xe = clamp(xe, 0, W-1);
+        if(xs > xe) continue;
+
+        any = true;
+
+        // 只填 alpha channel（RGB 會保持 0）
+        let p = rowBase + xs*4 + 3;
+        const end = rowBase + xe*4 + 3;
+        for(; p<=end; p+=4) data[p] = 255;
+      }
+    }
+
+    // 下一掃描線：x += invSlope
+    for(const e of active) e.x += e.invSlope;
+  }
+
+  if(!any) return null;
+
+  ctx.putImageData(img, 0, 0);
+  return canvas;
 }
+
+
 
 function getRootPartIdForMesh(mesh){
   let root = mesh;
@@ -2142,54 +2219,139 @@ async function generateSlices(){
   const v0 = new THREE.Vector3(), v1=new THREE.Vector3(), v2=new THREE.Vector3();
 
   function collectAtPlaneForMesh(mesh, zPlane, segsOut){
-    const EPS=1e-7;
-    const geom=mesh.geometry;
-    const pos=geom.attributes.position;
-    const idx=geom.index ? geom.index.array : null;
-    const matW=mesh.matrixWorld;
-    const triCount = idx ? Math.floor(idx.length/3) : Math.floor(pos.count/3);
+  // ✅ 修正：避免「整個共平面三角形」把孔洞補死
+  // 規則：
+  // 1) 三點都在切平面上（整片共平面三角形）→ 忽略（不加入輪廓）
+  // 2) 恰好兩點在切平面上（共平面邊）→ 只加入那條邊（作為輪廓段）
+  // 3) 其他情況 → 只取真正穿越平面的交線段
 
-    for(let t=0;t<triCount;t++){
-      if(idx){
-        v0.fromBufferAttribute(pos, idx[t*3+0]).applyMatrix4(matW);
-        v1.fromBufferAttribute(pos, idx[t*3+1]).applyMatrix4(matW);
-        v2.fromBufferAttribute(pos, idx[t*3+2]).applyMatrix4(matW);
-      }else{
-        v0.fromBufferAttribute(pos, t*3+0).applyMatrix4(matW);
-        v1.fromBufferAttribute(pos, t*3+1).applyMatrix4(matW);
-        v2.fromBufferAttribute(pos, t*3+2).applyMatrix4(matW);
-      }
+  const EPSZ = 1e-7;
 
-      const d0=v0.z-zPlane, d1=v1.z-zPlane, d2=v2.z-zPlane;
-      const a0=Math.abs(d0)<EPS, a1=Math.abs(d1)<EPS, a2=Math.abs(d2)<EPS;
+  const geom = mesh.geometry;
+  const pos  = geom.attributes.position;
+  const idx  = geom.index ? geom.index.array : null;
+  const matW = mesh.matrixWorld;
 
-      if(a0&&a1&&a2){
-        const p0=projectXY(v0), p1=projectXY(v1), p2=projectXY(v2);
-        segsOut.push([p0,p1]); segsOut.push([p1,p2]); segsOut.push([p2,p0]);
-        continue;
-      }
+  const triCount = idx ? Math.floor(idx.length / 3) : Math.floor(pos.count / 3);
 
-      const ipts=[];
-      const addInter=(A,dA,B,dB)=>{
-        const denom=dA-dB; if(Math.abs(denom)<EPS) return;
-        const tAB=dA/(dA-dB); if(tAB<-EPS || tAB>1+EPS) return;
-        const tC=Math.max(0, Math.min(1, tAB));
-        const ix = A.x + (B.x-A.x)*tC;
-        const iy = A.y + (B.y-A.y)*tC;
-        ipts.push(projectXY(new THREE.Vector3(ix, iy, zPlane)));
-      };
-      addInter(v0,d0,v1,d1); addInter(v1,d1,v2,d2); addInter(v2,d2,v0,d0);
+  // 小工具：把投影點去重（避免同一個交點被重複加入）
+  const addUniquePt = (arr, p) => {
+    for(const q of arr){
+      if(Math.abs(p[0]-q[0]) < 1e-4 && Math.abs(p[1]-q[1]) < 1e-4) return;
+    }
+    arr.push(p);
+  };
 
-      const uniq=[];
-      for(const p of ipts){
-        if(!uniq.some(q=>Math.abs(p[0]-q[0])<1e-4 && Math.abs(p[1]-q[1])<1e-4)) uniq.push(p);
-      }
-      if(uniq.length>=2){
-        const a=uniq[0], b=uniq[1];
-        if(Math.hypot(a[0]-b[0], a[1]-b[1])>1e-4) segsOut.push([a,b]);
+  // 小工具：從多個交點中挑一對距離最遠的，當作交線段
+  const pickFarthestPair = (pts) => {
+    let bestA = pts[0], bestB = pts[1];
+    let bestD = -1;
+    for(let i=0;i<pts.length;i++){
+      for(let j=i+1;j<pts.length;j++){
+        const dx = pts[i][0]-pts[j][0];
+        const dy = pts[i][1]-pts[j][1];
+        const d2 = dx*dx + dy*dy;
+        if(d2 > bestD){
+          bestD = d2;
+          bestA = pts[i];
+          bestB = pts[j];
+        }
       }
     }
+    return [bestA, bestB];
+  };
+
+  for(let t=0; t<triCount; t++){
+    // 讀三角形三點（世界座標）
+    if(idx){
+      v0.fromBufferAttribute(pos, idx[t*3+0]).applyMatrix4(matW);
+      v1.fromBufferAttribute(pos, idx[t*3+1]).applyMatrix4(matW);
+      v2.fromBufferAttribute(pos, idx[t*3+2]).applyMatrix4(matW);
+    }else{
+      v0.fromBufferAttribute(pos, t*3+0).applyMatrix4(matW);
+      v1.fromBufferAttribute(pos, t*3+1).applyMatrix4(matW);
+      v2.fromBufferAttribute(pos, t*3+2).applyMatrix4(matW);
+    }
+
+    const d0 = v0.z - zPlane;
+    const d1 = v1.z - zPlane;
+    const d2 = v2.z - zPlane;
+
+    const a0 = Math.abs(d0) < EPSZ;
+    const a1 = Math.abs(d1) < EPSZ;
+    const a2 = Math.abs(d2) < EPSZ;
+
+    // (1) 整片共平面 → 忽略（最常造成孔洞被補死）
+    if(a0 && a1 && a2){
+      continue;
+    }
+
+    // (2) 恰好兩點共平面 → 只加那條邊
+    if(a0 && a1 && !a2){
+      const p0 = projectXY(v0);
+      const p1 = projectXY(v1);
+      if(Math.hypot(p0[0]-p1[0], p0[1]-p1[1]) > 1e-4) segsOut.push([p0,p1]);
+      continue;
+    }
+    if(a1 && a2 && !a0){
+      const p1 = projectXY(v1);
+      const p2 = projectXY(v2);
+      if(Math.hypot(p1[0]-p2[0], p1[1]-p2[1]) > 1e-4) segsOut.push([p1,p2]);
+      continue;
+    }
+    if(a2 && a0 && !a1){
+      const p2 = projectXY(v2);
+      const p0 = projectXY(v0);
+      if(Math.hypot(p2[0]-p0[0], p2[1]-p0[1]) > 1e-4) segsOut.push([p2,p0]);
+      continue;
+    }
+
+    // (3) 一般情況：只取真正穿越平面的交點
+    const ipts = [];
+
+    const addProj = (vecLike) => {
+      addUniquePt(ipts, projectXY(vecLike));
+    };
+
+    const edgeInter = (A, dA, B, dB) => {
+      const onA = Math.abs(dA) < EPSZ;
+      const onB = Math.abs(dB) < EPSZ;
+
+      // 共平面邊（兩端都在平面上）已在「兩點共平面」處理過，這裡跳過
+      if(onA && onB) return;
+
+      if(onA){ addProj(A); return; }
+      if(onB){ addProj(B); return; }
+
+      // 同側不相交
+      if(dA * dB > 0) return;
+
+      // 穿越：線性插值
+      const t = dA / (dA - dB); // 0..1
+      if(t < -1e-6 || t > 1+1e-6) return;
+
+      const tt = Math.max(0, Math.min(1, t));
+      const ix = A.x + (B.x - A.x) * tt;
+      const iy = A.y + (B.y - A.y) * tt;
+
+      addUniquePt(ipts, projectXY({x:ix, y:iy}));
+    };
+
+    edgeInter(v0,d0,v1,d1);
+    edgeInter(v1,d1,v2,d2);
+    edgeInter(v2,d2,v0,d0);
+
+    if(ipts.length < 2) continue;
+
+    // 若因為數值原因出現 3 個點，取距離最遠的一對當交線段
+    const [pa, pb] = (ipts.length === 2) ? [ipts[0], ipts[1]] : pickFarthestPair(ipts);
+
+    if(Math.hypot(pa[0]-pb[0], pa[1]-pb[1]) > 1e-4){
+      segsOut.push([pa, pb]);
+    }
   }
+}
+
 
   /* 只用 loops 填滿，避免 coplanar triangles 把孔洞補死 */
   function drawLoopsAndPolys(ctx, loops){
@@ -2205,24 +2367,34 @@ async function generateSlices(){
   }
 
   function buildGlobalMaskAtPlane(zPlane){
-    const segsAll=[];
-    for(const m of meshes) collectAtPlaneForMesh(m, zPlane, segsAll);
-    const loops=buildLoopsFromSegmentsSmart(segsAll, getAutoSnap(frameW, frameH));
-    if(loops.length===0) return null;
-    const canvas=document.createElement('canvas'); canvas.width=frameW; canvas.height=frameH;
-    const ctx=canvas.getContext('2d'); drawLoopsAndPolys(ctx, loops);
-    return canvas;
+  // ✅ 重要：不要把所有 mesh 的線段混在一起做 parity（會變 XOR）
+  // 正確做法：每個 mesh 先各自得到 mask，再 OR union 起來（跟你原本 drawImage union 一樣）
+
+  const unionCanvas = document.createElement('canvas');
+  unionCanvas.width = frameW;
+  unionCanvas.height = frameH;
+  const uctx = unionCanvas.getContext('2d');
+
+  let any = false;
+
+  for(const m of meshes){
+    const segs = [];
+    collectAtPlaneForMesh(m, zPlane, segs);
+    const c = rasterizeSegmentsToMaskCanvas(segs, frameW, frameH);
+    if(c){
+      uctx.drawImage(c, 0, 0);
+      any = true;
+    }
   }
 
-  function buildPartMaskAtPlane(mesh, zPlane){
-    const segs=[];
-    collectAtPlaneForMesh(mesh, zPlane, segs);
-    const loops=buildLoopsFromSegmentsSmart(segs, getAutoSnap(frameW, frameH));
-    if(loops.length===0) return null;
-    const canvas=document.createElement('canvas'); canvas.width=frameW; canvas.height=frameH;
-    const ctx=canvas.getContext('2d'); drawLoopsAndPolys(ctx, loops);
-    return canvas;
-  }
+  return any ? unionCanvas : null;
+}
+
+function buildPartMaskAtPlane(mesh, zPlane){
+  const segs = [];
+  collectAtPlaneForMesh(mesh, zPlane, segs);
+  return rasterizeSegmentsToMaskCanvas(segs, frameW, frameH);
+}
 
   const offsets=[0];
 
@@ -2830,8 +3002,16 @@ function setTab(tab){
     growthTab.classList.add('active'); modelCanvas.style.display='block'; sliceCanvas.style.display='none'; layerSlider.style.display='none';
     if(model) model.visible=false;
     ensureGrowthBuilt();
-    growthGroup.visible=true;
-    updateGrowthResident(growthShownLayers||0);
+    growthGroup.visible = true;
+
+    // ★ 進入成長視圖：預設顯示完整（避免看起來像沒切到）
+    //    想看從 0 長出來：按「停止」或把滑桿拉回 0
+    if (baseSlices.length > 0) {
+      if (growthShownLayers === 0) setGrowthShownLayers(baseSlices.length);
+      else setGrowthShownLayers(growthShownLayers);
+    }
+
+    
     parts.forEach(p=> p.helper.visible=false);
     partFly.style.display='none';
     platformOverlay.style.display='none';
@@ -3248,3 +3428,4 @@ syncExportFromWidth(); // 初始化輸出尺寸＋比例尺
 
 </body>
 </html>
+
